@@ -10,3 +10,5 @@ Format: `NNNN-kebab-case-title.md` (z.B. `0001-use-postgres.md`)
 - 0004 Structure the Python backend into clear layers
 - 0005 Introduce RBAC baseline and admin approval flow
 - 0006 Use React + TypeScript + Vite and nginx as frontend stack
+- 0007 Use JSONB for extensible module configuration
+- 0008 Introduce two-tier module visibility model

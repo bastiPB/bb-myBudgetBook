@@ -1,17 +1,22 @@
 // DashboardPage.tsx — Übersicht nach dem Login.
-// Zeigt monatliche Gesamtkosten + demnächst fällige Abos.
+// Zeigt Onboarding-Card (wenn noch keine Module gewählt) + monatliche Gesamtkosten + Fälligkeiten.
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { logoutUser } from '../api/auth'
 import { getOverview } from '../api/subscriptions'
 import { useAuth } from '../context/useAuth'
+import { useModules } from '../context/useModules'
 import type { OverviewRead } from '../types/subscription'
 import { INTERVAL_LABELS } from '../types/subscription'
 
 export default function DashboardPage() {
   const { user, setUser } = useAuth()
+  const { hasChosenModules, displayName, activeModules } = useModules()
   const navigate = useNavigate()
   const [overview, setOverview] = useState<OverviewRead | null>(null)
+
+  // Anzeigename: display_name aus Profil, Fallback: Teil der E-Mail vor dem @
+  const greeting = displayName ?? user!.email.split('@')[0]
 
   // Übersicht beim Laden der Seite abrufen
   useEffect(() => {
@@ -22,6 +27,9 @@ export default function DashboardPage() {
 
   async function handleLogout() {
     await logoutUser()
+    // Flag in sessionStorage setzen bevor navigate — überlebt den Navigation-Dance
+    // (location.state kann durch ProtectedRoute's <Navigate replace> überschrieben werden)
+    sessionStorage.setItem('justLoggedOut', 'true')
     setUser(null)
     navigate('/login')
   }
@@ -63,6 +71,28 @@ export default function DashboardPage() {
 
       <hr style={{ margin: '24px 0' }} />
 
+      {/* Onboarding-Card — zeigt wenn User noch keine Module gewählt hat */}
+      {!hasChosenModules && (
+        <div style={{
+          border: '1px solid #d0e8ff',
+          borderRadius: 8,
+          background: '#f0f8ff',
+          padding: '24px 28px',
+          marginBottom: 24,
+        }}>
+          <h2 style={{ marginTop: 0 }}>Hallo {greeting}!</h2>
+          <p style={{ color: '#444', margin: '8px 0 16px' }}>
+            Dein Dashboard ist noch leer. Wähle deine Module und richte dein Dashboard ein.
+          </p>
+          <button
+            onClick={() => navigate('/profile/settings')}
+            style={{ padding: '10px 20px' }}
+          >
+            Jetzt loslegen
+          </button>
+        </div>
+      )}
+
       {/* Übersicht */}
       {overview && (
         <>
@@ -93,22 +123,43 @@ export default function DashboardPage() {
       )}
 
       {/* Navigation */}
-      <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
-        <button
-          onClick={() => navigate('/subscriptions')}
-          style={{ padding: '10px 20px' }}
-        >
-          Alle Abos verwalten →
-        </button>
+      <div style={{ display: 'flex', gap: 12, marginTop: 8, flexWrap: 'wrap' }}>
 
-        {/* Admin-Link — nur für User mit Rolle "admin" sichtbar */}
-        {user!.role === 'admin' && (
+        {/* Aktive Modul-Seiten — nur wenn das Modul für diesen User freigeschaltet ist */}
+        {activeModules.map(module => (
           <button
-            onClick={() => navigate('/admin')}
+            key={module.key}
+            onClick={() => navigate(module.route)}
             style={{ padding: '10px 20px' }}
           >
-            User verwalten (Admin) →
+            {module.navLabel} →
           </button>
+        ))}
+
+        {/* Profil — für jeden eingeloggten User */}
+        <button
+          onClick={() => navigate('/profile/settings')}
+          style={{ padding: '10px 20px' }}
+        >
+          Mein Profil
+        </button>
+
+        {/* User-Verwaltung + System-Einstellungen — nur für Admins */}
+        {user!.role === 'admin' && (
+          <>
+            <button
+              onClick={() => navigate('/admin')}
+              style={{ padding: '10px 20px' }}
+            >
+              User verwalten →
+            </button>
+            <button
+              onClick={() => navigate('/settings')}
+              style={{ padding: '10px 20px' }}
+            >
+              System-Einstellungen →
+            </button>
+          </>
         )}
       </div>
     </div>

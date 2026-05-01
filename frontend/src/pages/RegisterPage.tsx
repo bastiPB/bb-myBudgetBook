@@ -1,11 +1,13 @@
 // RegisterPage.tsx — Selbst-Registrierung für neue User.
 // Nach erfolgreicher Registrierung wartet der Account auf Admin-Freigabe.
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { registerUser } from '../api/auth'
+import { useAuth } from '../context/useAuth'
 
 export default function RegisterPage() {
   const navigate = useNavigate()
+  const { user } = useAuth()
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -17,6 +19,20 @@ export default function RegisterPage() {
 
   // Nach erfolgreicher Registrierung: Erfolgsscreen anzeigen statt weiterleiten
   const [success, setSuccess] = useState(false)
+
+  // Countdown für den Redirect wenn der User bereits eingeloggt ist
+  const [countdown, setCountdown] = useState(3)
+
+  // Wenn der User bereits eingeloggt ist: Countdown starten, dann zum Dashboard
+  useEffect(() => {
+    if (!user) return
+    if (countdown === 0) {
+      navigate('/dashboard')
+      return
+    }
+    const timer = setTimeout(() => setCountdown(prev => prev - 1), 1000)
+    return () => clearTimeout(timer)
+  }, [user, countdown, navigate])
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -38,6 +54,24 @@ export default function RegisterPage() {
     } finally {
       setLoading(false)
     }
+  }
+
+  // Bereits eingeloggt → Hinweisscreen mit Countdown anzeigen
+  if (user) {
+    return (
+      <div style={{ maxWidth: 400, margin: '80px auto', padding: '0 16px', textAlign: 'center' }}>
+        <h2>Du bist bereits registriert und eingeloggt.</h2>
+        <p style={{ color: '#666', marginTop: 8 }}>
+          Du wirst in {countdown} Sekunde{countdown !== 1 ? 'n' : ''} zum Dashboard weitergeleitet…
+        </p>
+        <button
+          onClick={() => navigate('/dashboard')}
+          style={{ marginTop: 24, padding: '10px 24px' }}
+        >
+          Jetzt zum Dashboard
+        </button>
+      </div>
+    )
   }
 
   // Erfolgsscreen: Account ist pending, warte auf Admin-Freigabe

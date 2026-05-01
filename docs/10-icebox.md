@@ -154,6 +154,133 @@ Ein Epic wird erst „aktiv“, wenn folgende Kriterien erfüllt sind:
 - Nutzer kann Import sauber deaktivieren und Daten löschen (Privacy)
 
 ## Offene Fragen
-- Will das Projekt überhaupt „Bankdaten live“ anfassen oder bleibt es bei CSV?
+- Will das Projekt überhaupt „Bankdaten live” anfassen oder bleibt es bei CSV?
 - Welche Länder/Banken wären überhaupt realistisch (PSD2/Provider)?
 - Wie bleibt das Setup out-of-the-box und trotzdem sicher?
+
+---
+
+# EPIC 03 — E-Mail Benachrichtigungen (Abo-Erinnerungen & Spar-Alerts)
+
+## Tags
+- target: icebox
+- type: epic
+- area: ux, integration
+- risk: low
+- privacy: medium
+- decision: open
+- deps: SMTP/E-Mail-Infrastruktur, opt-in Konfiguration pro Modul, Modul-System (v0.2.0)
+
+## Motivation / Nutzerwert
+- Abo-Manager: Nutzer erhält eine E-Mail wenn ein teures oder selten genutztes Abo fällig wird.
+  Frage: “Nutzt du dieses Abo noch?” — mit Direktlink zum Suspend.
+- Urlaubskasse: Nutzer erhält eine E-Mail wenn er mit dem Sparen hinterher hängt.
+- Fondsparen: monatliche Erinnerung an die Sparrate.
+
+## Scope (Minimal) — v1 des Epics
+- SMTP-Konfiguration im Admin-Bereich (Server, Port, Absender-Adresse)
+- Pro Modul ein opt-in Toggle: E-Mail-Erinnerungen aktivieren
+- Abo-Manager: monatliche Zusammenfassung + Erinnerung 3 Tage vor Fälligkeit
+- Kein fancy Template — plain text ist ok für v1
+
+## Non-Goals (für v1)
+- Push-Notifications (App, Browser)
+- Komplexe Scheduling-Plattform
+- Mehrere Empfänger pro Benachrichtigung
+
+## Security & Privacy Notes
+- E-Mail-Adressen und SMTP-Credentials dürfen nie im Repo landen
+- Konfiguration per `.env` + Admin-UI
+- Opt-in: kein Nutzer bekommt ungefragt E-Mails
+
+## Akzeptanzkriterien (um später zu promoten)
+- Nutzer kann SMTP-Einstellungen im Admin-Bereich hinterlegen und testen (“Test-Mail senden”)
+- Mindestens ein Modul (Abo-Manager) sendet Erinnerungen korrekt
+- E-Mails können pro Modul deaktiviert werden
+
+## Offene Fragen
+- Welche E-Mail-Bibliothek? (Python: `smtplib` / `fastapi-mail` / `aiosmtplib`)
+- Wie werden die Erinnerungen zeitgesteuert ausgelöst? (Cronjob im Container, APScheduler, …)
+
+---
+
+# EPIC 04 — CSV Import & Reality Check
+
+## Tags
+- target: icebox
+- type: epic
+- area: integration, core
+- risk: medium
+- privacy: high
+- decision: open
+- deps: CSV-Parser, Modul-System (v0.2.0), Abo-Manager Suspend-Funktion
+
+## Motivation / Nutzerwert
+Nutzer können einen echten Kontoauszug (CSV-Export der Bank) importieren.
+Das System gleicht die realen Buchungen mit den eingetragenen Abos ab:
+
+- **Abo-Manager Reality Check:** Wurde dieses Abo wirklich abgebucht? Oder schon nicht mehr (weil suspend gedrückt)?
+- **Urlaubskasse Reality Check:** Sind die Spar-Einlagen auf dem echten Konto gelandet?
+- **Haushaltsbuch:** Echte Ausgaben aus dem Kontoauszug direkt als Buchungen einspielen.
+
+## Scope (Minimal) — v1 des Epics
+- CSV-Upload im Admin-Bereich (kein automatischer Bankzugang — nur Datei-Upload)
+- Normalisierung: Datum, Betrag, Verwendungszweck (spaltenbasiert, konfigurierbar)
+- Matching-Logik: Welche Buchung passt zu welchem Abo? (nach Betrag + Datum-Nähe)
+- Anzeige: “Gematcht”, “Nicht gefunden”, “Überschuss”
+
+## Non-Goals (für v1)
+- Kein automatischer Bankzugang (Open Banking) — das ist EPIC 02
+- Keine KI-basierte Kategorisierung
+- Kein Export aus dem Tool heraus
+
+## Security & Privacy Notes
+- CSV-Dateien enthalten hochsensible Finanzdaten — sie dürfen NICHT dauerhaft gespeichert werden
+- Import ist ein einmaliger Vorgang: CSV einlesen → Matching → Ergebnis anzeigen → Datei wegwerfen
+- Kein Logging der Buchungsinhalte
+
+## Akzeptanzkriterien (um später zu promoten)
+- Nutzer kann CSV hochladen und bekommt eine verständliche Matching-Übersicht
+- Nicht gematchte Buchungen sind klar als solche gekennzeichnet
+- CSV wird nach dem Import nicht gespeichert (Privacy by Design)
+- Threat Model Update (docs/08-threat-model.md) für CSV-Upload-Fluss
+
+## Offene Fragen
+- Welche CSV-Formate? (Deutsche Banken exportieren unterschiedlich — DKB, Sparkasse, ING, …)
+- Spalten-Mapping: fix oder konfigurierbar vom Nutzer?
+- Wie viel “Fuzzy Matching” ist sinnvoll (Betrag ±X%, Datum ±Y Tage)?
+
+---
+
+# EPIC 05 — Gemeinsame Bereiche (Shared Contexts für Module)
+
+## Tags
+- target: icebox
+- type: epic
+- area: core, ux
+- risk: medium
+- privacy: medium
+- decision: open
+- deps: Modul-System (v0.2.0), Kontext-Modell (docs/13-rbac-vision.md), mind. 1 Modul implementiert
+
+## Motivation / Nutzerwert
+Manche Module sollen mehrere User gemeinsam nutzen können:
+- Gemeinsames Sparfach (Familie zahlt gemeinsam ein)
+- Gemeinsame Urlaubskasse (Paar spart zusammen)
+- Gemeinsames Haushaltsbuch (Wer hat was bezahlt?)
+
+Aktuell ist jedes Modul strikt pro-User (wie Abos). Dieses Epic fügt den Gedanken der **geteilten Bereiche** hinzu.
+
+## Scope (Minimal) — v1 des Epics
+- Mindestens ein Modul (z.B. Urlaubskasse) bekommt die Option “Gemeinsam”
+- Gemeinsam = mehrere User sehen und bearbeiten denselben Datensatz
+- Einladung: Admin fügt User einem gemeinsamen Bereich hinzu
+- Berechtigungen innerhalb des gemeinsamen Bereichs: alle dürfen einzahlen, nur Admin/Owner darf löschen
+
+## Abhängigkeit
+Dieses Epic baut auf dem Kontext-Modell auf (docs/13-rbac-vision.md).
+Erst wenn das Kontext-Modell entschieden ist, kann dieses Epic konkret werden.
+
+## Akzeptanzkriterien (um später zu promoten)
+- Klare Entscheidung: Wie hängen Kontext-Modell und geteilte Module zusammen? (ADR erforderlich)
+- Mindestens ein Modul mit “Gemeinsam”-Funktion vollständig implementiert und getestet
