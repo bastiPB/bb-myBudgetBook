@@ -4,7 +4,7 @@ from fastapi import FastAPI
 
 from app.bootstrap import bootstrap_admin
 from app.exceptions import register_exception_handlers
-from app.routers import admin, auth, subscriptions
+from app.routers import admin, auth, profile, settings, subscriptions
 
 
 @asynccontextmanager
@@ -33,6 +33,8 @@ def create_app() -> FastAPI:
     register_exception_handlers(app)
     app.include_router(auth.router)
     app.include_router(admin.router)
+    app.include_router(settings.router)
+    app.include_router(profile.router)
     app.include_router(subscriptions.router)
 
     @app.get("/health", tags=["system"])
