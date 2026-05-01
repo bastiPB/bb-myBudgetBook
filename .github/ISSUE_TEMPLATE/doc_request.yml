@@ -1,0 +1,18 @@
+﻿name: Documentation
+description: Doku verbessern/ergänzen
+title: "[Docs] "
+labels: ["type:docs", "status:needs-triage"]
+body:
+  - type: textarea
+    id: where
+    attributes:
+      label: Welche Stelle?
+      description: "Datei/Abschnitt/Link"
+    validations:
+      required: true
+  - type: textarea
+    id: change
+    attributes:
+      label: Was soll besser werden?
+    validations:
+      required: true

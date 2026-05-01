@@ -1,0 +1,30 @@
+﻿name: Bug Report
+description: Fehler melden (reproduzierbar, mit Kontext)
+title: "[Bug] "
+labels: ["type:bug", "status:needs-triage"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: Was passiert?
+      description: Kurze Beschreibung des Problems.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Schritte zum Reproduzieren
+      description: "1) ... 2) ... 3) ..."
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Erwartetes Verhalten
+    validations:
+      required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: Umgebung
+      description: "OS, Browser, Docker Version, etc."

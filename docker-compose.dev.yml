@@ -1,0 +1,20 @@
+# docker-compose.dev.yml — Überschreibungen für die lokale Entwicklung.
+#
+# Diese Datei wird ZUSÄTZLICH zu docker-compose.yml geladen:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up db backend
+#
+# Was sie ändert:
+#   - Backend-Port 8888 wird nach außen freigegeben
+#     → Vite Dev Server braucht das für seinen Proxy (/api/* → localhost:8888)
+#
+# Was du lokal ausführst:
+#   Terminal 1: docker compose -f docker-compose.yml -f docker-compose.dev.yml up db backend
+#   Terminal 2: cd frontend && npm run dev
+
+services:
+
+  backend:
+    # Port 8888 nach außen freigeben — nur für den Vite-Dev-Proxy nötig.
+    # In Produktion (docker-compose.yml) ist dieser Port nicht offen.
+    ports:
+      - "8888:8000"

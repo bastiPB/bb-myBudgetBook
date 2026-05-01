@@ -1,0 +1,76 @@
+# docker-compose.yml — Startet alle Dienste der App mit einem Befehl.
+#
+# VERWENDUNG:
+#   1. cp .env.example .env  (und Werte anpassen)
+#   2. docker compose up --build
+#
+# DIENSTE:
+#   db       — PostgreSQL Datenbank
+#   backend  — Python/FastAPI Backend
+#   frontend — React-App (nginx: statische Dateien + API-Proxy)
+
+services:
+
+  # -------------------------------------------------------
+  # PostgreSQL Datenbank
+  # -------------------------------------------------------
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      # Diese Werte kommen aus der .env-Datei
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      # Daten bleiben erhalten, auch wenn der Container neu startet
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      # Port nach außen freigeben — nützlich zum Debuggen mit einem DB-Tool
+      - "5432:5432"
+    healthcheck:
+      # Prüft, ob PostgreSQL bereit ist, bevor das Backend startet
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # -------------------------------------------------------
+  # Backend (FastAPI)
+  # -------------------------------------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    # Lädt alle Variablen aus der .env-Datei in den Container
+    env_file: .env
+    # Kein Port nach außen — Backend ist nur über nginx (Port 80) erreichbar.
+    # Für lokale Entwicklung: docker-compose.dev.yml verwenden.
+    depends_on:
+      db:
+        # Backend wartet, bis die DB den Health-Check besteht
+        condition: service_healthy
+
+  # -------------------------------------------------------
+  # Frontend (nginx: React-Build + API-Proxy)
+  # -------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      # Die App ist unter http://localhost erreichbar (Port 80)
+      - "80:80"
+    depends_on:
+      # nginx muss erst starten, wenn das Backend läuft
+      # (sonst würden die ersten API-Requests ins Leere laufen)
+      - backend
+
+# -------------------------------------------------------
+# Volumes — persistente Datenspeicher
+# -------------------------------------------------------
+volumes:
+  # Postgres-Daten überleben Container-Neustarts und docker compose down
+  postgres-data:

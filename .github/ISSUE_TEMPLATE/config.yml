@@ -1,0 +1,8 @@
+﻿blank_issues_enabled: false
+contact_links:
+  - name: Security issue (private)
+    url: https://github.com/bastiPB/bb-myBudgetBook/blob/main/SECURITY.md
+    about: Bitte keine Sicherheitslücken als öffentliche Issues posten. Siehe SECURITY.md.
+  - name: "Roadmap / MVP"
+    url: https://github.com/bastiPB/bb-myBudgetBook/blob/main/docs/01-mvp.md
+    about: Bitte vorher MVP und Roadmap checken.

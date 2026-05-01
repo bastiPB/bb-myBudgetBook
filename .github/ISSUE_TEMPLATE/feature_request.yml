@@ -1,0 +1,38 @@
+﻿name: Feature Request
+description: Neue Funktion / Verbesserung vorschlagen
+title: "[Feature] "
+labels: ["type:feature", "status:needs-triage"]
+body:
+  - type: textarea
+    id: value
+    attributes:
+      label: "Nutzerwert / Problem"
+      description: "Welches Problem wird gelöst? Für wen?"
+    validations:
+      required: true
+  - type: dropdown
+    id: mvpfit
+    attributes:
+      label: MVP Fit
+      options:
+        - "Ja (v0.1)"
+        - "Nein (v0.2+)"
+        - Unsicher
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Akzeptanzkriterien
+      description: "Woran erkennt man: fertig?"
+    validations:
+      required: true
+  - type: dropdown
+    id: risk
+    attributes:
+      label: Risiko
+      options: [Low, Medium, High]
+  - type: textarea
+    id: notes
+    attributes:
+      label: "Notizen / Links"
