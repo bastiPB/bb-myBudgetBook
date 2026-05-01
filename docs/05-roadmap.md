@@ -72,6 +72,33 @@ Vollständige Spec + Implementierungsdetails: `docs/14-v020-module-system.md`
 
 ---
 
+## v0.2.1 — UI Shell + Dashboard Initial — Geplant
+
+**Ziel:** Das Frontend bekommt eine stabile Grundstruktur (Header, Sidebar, Footer) und eine erste klare Dashboard-Startansicht.
+
+Vollständige Scope-Definition: `docs/15-v021-ui-shell-and-dashboard-initial.md`
+
+### Scope für dieses Mini-Release
+
+- App-Shell mit `Header`, `Sidebar`, `Footer` als wiederverwendbare Layout-Bausteine
+- Grundlayout für Desktop und mobile Ansicht (responsives Verhalten)
+- Erste Dashboard-Initialansicht mit klarer Struktur (Hero/Kurzstatus/Schnellzugriffe)
+- Dashboard soll mit leerem Datenstand verständlich bleiben (Empty-State)
+
+### Out of Scope (nicht Teil von v0.2.1)
+
+- Neue Business-Logik oder neue Datenmodelle
+- Neue API-Endpunkte
+- Finale Detail-Visualisierung für alle Module
+
+### Doku-Ziel in v0.2.1
+
+- `CHANGELOG.md` pflegen (`[Unreleased]` und später `0.2.1`)
+- Scope-Dokument aktuell halten
+- Falls Layout-Architektur-Entscheidung dauerhaft ist: ADR ergänzen
+
+---
+
 ## v0.2.x — Konkrete Module & Profil-Erweiterungen
 
 Nach dem Fundament werden Module einzeln, unabhängig voneinander entwickelt.

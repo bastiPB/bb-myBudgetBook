@@ -34,3 +34,13 @@ status: living
 - [ ] CHANGELOG gepflegt
 - [ ] Release-Tag (`vX.Y.Z`) vorbereitet und passender CHANGELOG-Abschnitt vorhanden
 - [ ] Security Policy vorhanden (SECURITY.md)
+
+## Addendum v0.2.1 (UI Shell Mini-Release)
+- [ ] Header ist auf allen geschützten Seiten sichtbar und konsistent
+- [ ] Sidebar-Navigation ist auf Desktop nutzbar und auf mobilen Breiten bedienbar
+- [ ] Footer ist vorhanden und überlappt keinen Inhalt
+- [ ] Dashboard-Initialansicht hat definierten Empty-State (kein "leerer Bildschirm")
+- [ ] Layout funktioniert ohne horizontales Scrollen bei typischen mobilen Breiten
+- [ ] Frontend `npm run lint` ist grün
+- [ ] Frontend `npm run build` ist grün
+- [ ] Scope-Dokument für v0.2.1 ist aktualisiert
