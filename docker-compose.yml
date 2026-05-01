@@ -39,9 +39,7 @@ services:
   # Backend (FastAPI)
   # -------------------------------------------------------
   backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    image: ghcr.io/bastipb/bb-mybudgetbook/backend:latest
     restart: unless-stopped
     # Lädt alle Variablen aus der .env-Datei in den Container
     env_file: .env
@@ -56,9 +54,7 @@ services:
   # Frontend (nginx: React-Build + API-Proxy)
   # -------------------------------------------------------
   frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
+    image: ghcr.io/bastipb/bb-mybudgetbook/frontend:latest
     restart: unless-stopped
     ports:
       # Die App ist unter http://localhost erreichbar (Port 80)

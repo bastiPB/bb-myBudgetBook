@@ -4,6 +4,7 @@
 #   docker compose -f docker-compose.yml -f docker-compose.dev.yml up db backend
 #
 # Was sie ändert:
+#   - Backend + Frontend werden lokal gebaut (statt Image von ghcr.io zu ziehen)
 #   - Backend-Port 8888 wird nach außen freigegeben
 #     → Vite Dev Server braucht das für seinen Proxy (/api/* → localhost:8888)
 #
@@ -14,7 +15,15 @@
 services:
 
   backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
     # Port 8888 nach außen freigeben — nur für den Vite-Dev-Proxy nötig.
     # In Produktion (docker-compose.yml) ist dieser Port nicht offen.
     ports:
       - "8888:8000"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
