@@ -5,6 +5,14 @@ Format based on Keep a Changelog.
 
 ## [Unreleased]
 
+### Added
+- UI-Shell-Arbeit für v0.2.1 gestartet: Header, Sidebar und Footer als neue Layout-Bausteine
+- Dashboard-Initialansicht als erster strukturierter Einstieg (inkl. Empty-State-Ziel)
+
+### Docs
+- Roadmap um v0.2.1-Mini-Release-Scope ergänzt
+- Release-Checklist um v0.2.1-Addendum für UI-Shell ergänzt
+
 ## [0.2.0] - 2026-05-01
 
 ### Added
