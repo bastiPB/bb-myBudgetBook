@@ -163,6 +163,11 @@ _record_price_change erhaelt daher ein optionales valid_from-Argument:
 - create_subscription: valid_from = started_on
 - update_subscription: valid_from = date.today() (Standard)
 
+Validierungsregeln:
+- `amount >= 0`
+- `started_on <= today`
+- falls `access_until` gesetzt: `access_until >= suspended_at` (wenn suspended_at gesetzt)
+
 ---
 
 ## 6) API-Delta (Vorschlag)
@@ -197,7 +202,7 @@ Response-Erweiterungen:
 ## 7) Frontend-Delta (Vorschlag)
 
 1. Tabellenansicht (`/subscriptions`)
-- Suche (clientseitig v1)
+- Suche (clientseitig in v0.2.2)
 - Seitengroesse 25/50/100
 - Logo-Spalte (thumbnail)
 - Status-Badge
@@ -264,7 +269,7 @@ Ergebnis:
 ## 9) Offene Entscheidungen
 
 1. Suspend vs Canceled
-- brauchen wir beide Status direkt in v1?
+- brauchen wir beide Status direkt in v0.2.2?
 
 2. Kumulierte Kosten-Berechnung
 - einfache Naeherung aus started_on + aktuellem amount + interval
@@ -275,7 +280,7 @@ Ergebnis:
 - oder spaeter objekt storage (skalierbar)
 
 4. DELETE Verhalten
-- fuer v1 behalten oder auf "nur admin / nur hard cleanup" verschieben?
+- fuer v0.2.2 behalten oder auf "nur admin / nur hard cleanup" verschieben?
 
 ---
 
