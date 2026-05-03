@@ -29,11 +29,6 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     cfg = get_settings()
 
-    # Upload-Verzeichnis anlegen bevor StaticFiles es einbindet —
-    # StaticFiles wirft einen Fehler wenn das Verzeichnis nicht existiert.
-    upload_path = Path(cfg.upload_dir)
-    upload_path.mkdir(parents=True, exist_ok=True)
-
     app = FastAPI(
         title="BB-myBudgetBook API",
         version="0.1.0",
@@ -47,11 +42,15 @@ def create_app() -> FastAPI:
     app.include_router(profile.router)
     app.include_router(subscriptions.router)
 
-    # /uploads als statisches Verzeichnis bereitstellen (ADR 0010: lokales Dateisystem).
-    # Logos liegen unter /uploads/logos/<uuid>.ext und werden über /uploads/logos/... ausgeliefert.
-    # Der Vite-Dev-Proxy und Nginx leiten /api/uploads → /uploads weiter — das Frontend
-    # greift immer über /api/uploads/... zu, nie direkt über die Backend-URL.
-    app.mount("/uploads", StaticFiles(directory=str(upload_path)), name="uploads")
+    # Upload-Verzeichnis anlegen und als statisches Verzeichnis einbinden (ADR 0010).
+    # Schlägt das Anlegen fehl (z. B. fehlende Rechte in CI-Umgebungen), wird der
+    # Mount übersprungen — die App startet trotzdem, nur ohne Upload-Unterstützung.
+    upload_path = Path(cfg.upload_dir)
+    try:
+        upload_path.mkdir(parents=True, exist_ok=True)
+        app.mount("/uploads", StaticFiles(directory=str(upload_path)), name="uploads")
+    except (PermissionError, OSError):
+        pass
 
     @app.get("/health", tags=["system"])
     def healthcheck() -> dict[str, str]:
