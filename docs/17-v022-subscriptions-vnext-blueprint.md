@@ -1,7 +1,7 @@
 # Subscriptions vNext Blueprint (Delta)
 
 Status: draft  
-Scope: v0.2.x (Subscriptions Ausbau)  
+Scope: v0.2.2 – v0.2.3 (Subscriptions Ausbau)  
 Owner: Product + Engineering
 
 ---
@@ -75,7 +75,7 @@ Frontend heute:
 - Suche in der aktuellen Tabelle
 - Seitengroesse: 25 (default), 50, 100
 
-### 3.2 Nice-to-have (noch nicht v1)
+### 3.2 Nice-to-have (nicht in v0.2.2 / v0.2.3)
 
 Preis-Historie:
 - bei Aenderung von `amount` alten Preis mit gueltig-von/gueltig-bis speichern
@@ -84,7 +84,7 @@ Preis-Historie:
 
 ---
 
-## 4) Fachliche Entscheidungen (v1)
+## 4) Fachliche Entscheidungen (v0.2.2)
 
 1. Soft-Lifecycle statt sofort loeschen
 - neuer Status: `active | suspended | canceled` (Vorschlag)
@@ -96,7 +96,7 @@ Preis-Historie:
   - `suspended_at`: ab wann pausiert/gekuendigt markiert
   - `access_until`: bis wann Leistung noch verfuegbar (z. B. Monatsende)
 
-3. Loeschen in v1
+3. Loeschen in v0.2.2
 - UI-Standardaktion wird Suspend/Cancel
 - Hard Delete nur als optionale Aktion (spaeter), um Historie zu bewahren
 
@@ -121,13 +121,24 @@ Geplante neue Felder in `subscriptions`:
 - `suspended_at` (date, nullable)
 - `access_until` (date, nullable)
 
-Validierungsregeln:
-- `amount >= 0`
+Neue Tabelle `subscription_price_history` (in Slice-A-Migration):
+- `id` (uuid, pk)
+- `subscription_id` (uuid, fk -> subscriptions.id, ondelete CASCADE)
+- `amount` (Numeric 10,2)
+- `valid_from` (date, not null)
+
+Warum schon in Slice A?
+- Preisaenderungen beginnen ab v0.2.2 automatisch aufgezeichnet zu werden
+- spaeteres Nacherfassen waere lueckenhaft und nicht korrekt
+- API und UI folgen erst in Slice E, die Daten laufen aber sofort mit
 - `started_on <= today`
 - falls `access_until` gesetzt: `access_until >= suspended_at` (wenn suspended_at gesetzt)
 
-Hinweis Preis-Historie (spaeter):
-- neue Tabelle `subscription_price_history`
+Hinweis Preis-Historie (Tabelle schon in Slice A, API/UI erst Slice E):
+- neue Tabelle `subscription_price_history` wird in Slice-A-Migration angelegt
+- Service schreibt bei jeder `amount`-Aenderung still einen Eintrag
+- kein API-Endpoint, kein UI in v0.2.2
+- Grund: Daten muessen ab Tag 1 laufen, sonst ist die Historie von Anfang an lueckenhaft
 
 ---
 
@@ -140,10 +151,10 @@ Bestehend bleibt:
 - `DELETE /subscriptions/{id}` (spaeter evtl. eingeschraenkt)
 - `GET /subscriptions/overview`
 
-Neu (v1):
+Neu (v0.2.2):
 - `GET /subscriptions/{id}` (Detail)
 - `POST /subscriptions/{id}/suspend`
-- `POST /subscriptions/{id}/resume` (optional in v1 oder v1.1)
+- `POST /subscriptions/{id}/resume` (optional in v0.2.2 oder v0.2.3)
 - `POST /subscriptions/{id}/logo` (multipart upload)
 
 Response-Erweiterungen:
@@ -183,10 +194,12 @@ Response-Erweiterungen:
 ## 8) Vertical Slices
 
 ### Slice A (Backend zuerst, schnell nutzbar)
-- DB-Migration fuer: status, started_on, notes
+- DB-Migration fuer: status, started_on, notes, suspended_at, access_until
+- DB-Migration fuer: `subscription_price_history` (Tabelle leer, aber bereit)
+- Service: bei `amount`-Aenderung still Eintrag in price_history schreiben (kein Endpoint)
 - Schema + Service + Router Update
 - Suspend Endpoint
-- Tests fuer Validierung + Ownership + Statuswechsel
+- Tests fuer Validierung + Ownership + Statuswechsel + price_history-Eintrag bei Update
 
 Ergebnis:
 - fachliche Basis steht
@@ -218,9 +231,10 @@ Ergebnis:
 Ergebnis:
 - visuelle Verbesserung
 
-### Slice E (spaeter, optional)
-- Preis-Historie mit eigener Tabelle
-- Historische Gesamtkosten statt vereinfachter Schaetzung
+### Slice E (spaeter, v0.2.3 oder eigener Release)
+- `GET /subscriptions/{id}/price-history` Endpoint
+- UI-Anzeige der Preishistorie auf Detailseite
+- Daten sind ab Slice A bereits vorhanden
 
 ---
 
@@ -242,7 +256,7 @@ Ergebnis:
 
 ---
 
-## 10) Akzeptanzkriterien v1 (Minimum)
+## 10) Akzeptanzkriterien v0.2.2 (Minimum)
 
 1. User kann Abo mit `started_on` und optional `notes` speichern.
 2. User kann Abo auf suspended setzen, ohne Datenverlust.

@@ -1,5 +1,11 @@
 // Alle API-Aufrufe rund um Abos.
-import type { OverviewRead, SubscriptionCreate, SubscriptionRead, SubscriptionUpdate } from '../types/subscription'
+import type {
+  OverviewRead,
+  SubscriptionCreate,
+  SubscriptionRead,
+  SubscriptionUpdate,
+  SuspendPayload,
+} from '../types/subscription'
 
 // Dieselbe Hilfsfunktion wie in auth.ts — fetch + JSON + Fehlerbehandlung.
 // (Später könnten wir das in eine gemeinsame api/client.ts auslagern.)
@@ -24,6 +30,11 @@ export async function getSubscriptions(): Promise<SubscriptionRead[]> {
   return apiFetch<SubscriptionRead[]>('/subscriptions')
 }
 
+// Ein einzelnes Abo laden (Detailansicht — genutzt in Slice C).
+export async function getSubscription(id: string): Promise<SubscriptionRead> {
+  return apiFetch<SubscriptionRead>(`/subscriptions/${id}`)
+}
+
 // Übersicht: Gesamtbetrag + demnächst fällige Abos.
 export async function getOverview(): Promise<OverviewRead> {
   return apiFetch<OverviewRead>('/subscriptions/overview')
@@ -45,7 +56,16 @@ export async function updateSubscription(id: string, data: SubscriptionUpdate): 
   })
 }
 
-// Abo löschen.
+// Abo pausieren (Soft-Lifecycle: bleibt in der DB erhalten).
+// access_until: optional — bis wann die Leistung noch nutzbar ist.
+export async function suspendSubscription(id: string, payload: SuspendPayload): Promise<SubscriptionRead> {
+  return apiFetch<SubscriptionRead>(`/subscriptions/${id}/suspend`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+// Abo löschen (Hard Delete).
 export async function deleteSubscription(id: string): Promise<void> {
   return apiFetch<void>(`/subscriptions/${id}`, { method: 'DELETE' })
 }

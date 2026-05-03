@@ -18,12 +18,20 @@ import uuid
 from fastapi import APIRouter, status
 
 from app.dependencies import DatabaseSession, EditorOrAdminUser
-from app.schemas.subscription import OverviewRead, SubscriptionCreate, SubscriptionRead, SubscriptionUpdate
+from app.schemas.subscription import (
+    OverviewRead,
+    SubscriptionCreate,
+    SubscriptionRead,
+    SubscriptionUpdate,
+    SuspendPayload,
+)
 from app.services.subscriptions import (
     create_subscription,
     delete_subscription,
     get_overview,
+    get_subscription,
     list_subscriptions,
+    suspend_subscription,
     update_subscription,
 )
 
@@ -36,7 +44,7 @@ def get_subscriptions(user: EditorOrAdminUser, session: DatabaseSession) -> list
     Gibt alle Abos des eingeloggten Users zurück.
 
     Sortiert nach Fälligkeitsdatum (nächste Fälligkeit zuerst).
-    Nur eingeloggte User erreichbar.
+    Enthält alle Status (active, suspended, canceled).
     """
     subs = list_subscriptions(session, user.id)
     return [SubscriptionRead.model_validate(s) for s in subs]
@@ -51,7 +59,8 @@ def create(
     """
     Legt ein neues Abo für den eingeloggten User an.
 
-    Erwartet als JSON: { "name": "...", "amount": 9.99, "next_due_date": "2026-06-01" }
+    Erwartet als JSON:
+    { "name": "Netflix", "amount": 9.99, "next_due_date": "2026-06-01" }
     Gibt HTTP 201 Created zurück (= "erfolgreich angelegt").
     """
     sub = create_subscription(session, user.id, payload)
@@ -63,8 +72,8 @@ def overview(user: EditorOrAdminUser, session: DatabaseSession) -> OverviewRead:
     """
     Gibt eine Übersicht der Abos zurück.
 
-    monthly_total: Summe aller Abo-Beträge.
-    upcoming:      Abos, die in den nächsten 30 Tagen fällig sind.
+    monthly_total: Summe aller aktiven Abo-Beträge (normiert auf Monat).
+    upcoming:      Aktive Abos, die in den nächsten 30 Tagen fällig sind.
 
     Warum steht diese Route VOR /{subscription_id}?
     FastAPI prüft Routen in der Reihenfolge wie sie definiert sind.
@@ -78,6 +87,46 @@ def overview(user: EditorOrAdminUser, session: DatabaseSession) -> OverviewRead:
     )
 
 
+@router.get("/{subscription_id}", response_model=SubscriptionRead)
+def detail(
+    subscription_id: uuid.UUID,
+    user: EditorOrAdminUser,
+    session: DatabaseSession,
+) -> SubscriptionRead:
+    """
+    Gibt ein einzelnes Abo zurück (Detailansicht).
+
+    Neu in v0.2.2 — wird von der Detailseite genutzt (Slice C).
+    Fehler:
+      - 404 wenn das Abo nicht gefunden wird
+      - 403 wenn das Abo einem anderen User gehört
+    """
+    sub = get_subscription(session, subscription_id, user.id)
+    return SubscriptionRead.model_validate(sub)
+
+
+@router.post("/{subscription_id}/suspend", response_model=SubscriptionRead)
+def suspend(
+    subscription_id: uuid.UUID,
+    payload: SuspendPayload,
+    user: EditorOrAdminUser,
+    session: DatabaseSession,
+) -> SubscriptionRead:
+    """
+    Setzt ein Abo auf 'suspended' (Soft-Lifecycle).
+
+    Das Abo bleibt in der DB erhalten — keine Daten gehen verloren.
+    Optional: access_until angeben, bis wann die Leistung noch nutzbar ist.
+
+    Fehler:
+      - 404 wenn das Abo nicht gefunden wird
+      - 403 wenn das Abo einem anderen User gehört
+      - 409 wenn das Abo bereits suspended oder canceled ist
+    """
+    sub = suspend_subscription(session, subscription_id, user.id, payload)
+    return SubscriptionRead.model_validate(sub)
+
+
 @router.patch("/{subscription_id}", response_model=SubscriptionRead)
 def update(
     subscription_id: uuid.UUID,
@@ -89,6 +138,7 @@ def update(
     Bearbeitet ein bestehendes Abo.
 
     Es müssen nur die Felder mitgeschickt werden, die sich ändern sollen.
+    Wenn amount sich ändert, wird automatisch ein Eintrag in price_history geschrieben.
     Fehler:
       - 404 wenn das Abo nicht gefunden wird
       - 403 wenn das Abo einem anderen User gehört
@@ -104,8 +154,9 @@ def delete(
     session: DatabaseSession,
 ) -> None:
     """
-    Löscht ein Abo unwiderruflich.
+    Löscht ein Abo unwiderruflich (Hard Delete).
 
+    Bevorzugte Aktion in v0.2.2: POST /subscriptions/{id}/suspend statt Delete.
     Fehler:
       - 404 wenn das Abo nicht gefunden wird
       - 403 wenn das Abo einem anderen User gehört
