@@ -31,6 +31,7 @@ from app.services.subscriptions import (
     get_overview,
     get_subscription,
     list_subscriptions,
+    resume_subscription,
     suspend_subscription,
     update_subscription,
 )
@@ -124,6 +125,25 @@ def suspend(
       - 409 wenn das Abo bereits suspended oder canceled ist
     """
     sub = suspend_subscription(session, subscription_id, user.id, payload)
+    return SubscriptionRead.model_validate(sub)
+
+
+@router.post("/{subscription_id}/resume", response_model=SubscriptionRead)
+def resume(
+    subscription_id: uuid.UUID,
+    user: EditorOrAdminUser,
+    session: DatabaseSession,
+) -> SubscriptionRead:
+    """
+    Setzt ein pausiertes Abo wieder auf 'active'.
+
+    suspended_at und access_until werden geleert.
+    Fehler:
+      - 404 wenn das Abo nicht gefunden wird
+      - 403 wenn das Abo einem anderen User gehört
+      - 409 wenn das Abo nicht den Status 'suspended' hat
+    """
+    sub = resume_subscription(session, subscription_id, user.id)
     return SubscriptionRead.model_validate(sub)
 
 

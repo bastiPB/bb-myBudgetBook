@@ -12,6 +12,7 @@ import {
   createSubscription,
   deleteSubscription,
   getSubscriptions,
+  resumeSubscription,
   suspendSubscription,
   updateSubscription,
 } from '../api/subscriptions'
@@ -169,6 +170,17 @@ export default function SubscriptionsPage() {
       setSubscriptions(prev => prev.map(s => s.id === id ? updated : s))
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Fehler beim Pausieren.')
+    }
+  }
+
+  // --- Abo fortsetzen (Resume) ---
+  async function handleResume(id: string, name: string) {
+    if (!window.confirm(`"${name}" wieder fortsetzen?`)) return
+    try {
+      const updated = await resumeSubscription(id)
+      setSubscriptions(prev => prev.map(s => s.id === id ? updated : s))
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Fehler beim Fortsetzen.')
     }
   }
 
@@ -363,7 +375,7 @@ export default function SubscriptionsPage() {
                       <td>{sub.next_due_date}</td>
                       <td>
                         <div className="subs-action-cell">
-                          {/* Bearbeiten + Pausieren: nur für aktive Abos */}
+                          {/* Aktive Abos: Bearbeiten + Pausieren */}
                           {sub.status === 'active' && (
                             <>
                               <button className="btn-outline-sm" onClick={() => startEdit(sub)}>
@@ -376,6 +388,15 @@ export default function SubscriptionsPage() {
                                 Pausieren
                               </button>
                             </>
+                          )}
+                          {/* Pausierte Abos: Fortsetzen */}
+                          {sub.status === 'suspended' && (
+                            <button
+                              className="btn-outline-sm subs-btn-resume"
+                              onClick={() => handleResume(sub.id, sub.name)}
+                            >
+                              Fortsetzen
+                            </button>
                           )}
                           <button className="btn-danger" onClick={() => handleDelete(sub.id, sub.name)}>
                             Löschen

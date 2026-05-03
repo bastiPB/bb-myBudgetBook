@@ -154,7 +154,7 @@ Bestehend bleibt:
 Neu (v0.2.2):
 - `GET /subscriptions/{id}` (Detail)
 - `POST /subscriptions/{id}/suspend`
-- `POST /subscriptions/{id}/resume` (optional in v0.2.2 oder v0.2.3)
+- `POST /subscriptions/{id}/resume`
 - `POST /subscriptions/{id}/logo` (multipart upload)
 
 Response-Erweiterungen:

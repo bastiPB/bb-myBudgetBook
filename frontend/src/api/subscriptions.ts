@@ -65,6 +65,11 @@ export async function suspendSubscription(id: string, payload: SuspendPayload): 
   })
 }
 
+// Pausiertes Abo wieder fortsetzen — setzt Status zurück auf active.
+export async function resumeSubscription(id: string): Promise<SubscriptionRead> {
+  return apiFetch<SubscriptionRead>(`/subscriptions/${id}/resume`, { method: 'POST' })
+}
+
 // Abo löschen (Hard Delete).
 export async function deleteSubscription(id: string): Promise<void> {
   return apiFetch<void>(`/subscriptions/${id}`, { method: 'DELETE' })

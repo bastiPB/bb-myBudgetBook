@@ -15,8 +15,11 @@ Format based on Keep a Changelog.
 - Subscriptions v0.2.2 (Slice B, in progress): Tabellen-UX mit Suche und Seitengroessen (25/50/100)
 - Subscriptions v0.2.2 (Slice B, in progress): Betragseingabe akzeptiert Komma oder Punkt; Anzeige deutsch formatiert
 
+### Fixed
+- Subscriptions v0.2.2: Resume-Flow ergaenzt (`POST /subscriptions/{id}/resume`) und `Fortsetzen`-Aktion in der Tabellenansicht fuer pausierte Abos hinzugefuegt
+
 ### Known Gaps
-- Subscriptions v0.2.2 (offen): Nach `Pausieren` fehlt aktuell ein sichtbarer `Fortsetzen`/`Resume`-Flow in der Tabellenansicht
+- Keine offenen Gaps fuer Resume in Slice B; weitere Lifecycle-Feinheiten folgen in Slice C/D
 
 ## [0.2.1] - 2026-05-03
 

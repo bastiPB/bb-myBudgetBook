@@ -410,6 +410,27 @@
   background: #2e1e05 !important;
 }
 
+/* ── Fortsetzen-Button (grüner Outline) ── */
+.subs-btn-resume {
+  border-color: #27ae60 !important;
+  color: #1d8348 !important;
+}
+
+.subs-btn-resume:hover {
+  background: #eafaf1 !important;
+  border-color: #1e8449 !important;
+  color: #145a32 !important;
+}
+
+[data-theme="dark"] .subs-btn-resume {
+  border-color: #52b788 !important;
+  color: #52b788 !important;
+}
+
+[data-theme="dark"] .subs-btn-resume:hover {
+  background: #0d2e1a !important;
+}
+
 /* ── Paginierung ── */
 .subs-pagination {
   display: flex;

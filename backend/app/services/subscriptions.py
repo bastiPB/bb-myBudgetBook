@@ -236,6 +236,36 @@ def suspend_subscription(
     return sub
 
 
+def resume_subscription(
+    session: Session,
+    subscription_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> Subscription:
+    """
+    Setzt ein suspendiertes Abo wieder auf 'active'.
+
+    Nur suspended darf zurück auf active — active oder canceled ergeben keinen Sinn.
+    suspended_at und access_until werden beim Resume geleert.
+    """
+    sub = _get_subscription_or_raise(session, subscription_id)
+    _check_ownership(sub, user_id)
+
+    # Nur suspendierte Abos können fortgesetzt werden
+    if sub.status != SubscriptionStatus.suspended:
+        raise InvalidSubscriptionStatusError(
+            f"Nur pausierte Abos können fortgesetzt werden. Aktueller Status: {sub.status.value}"
+        )
+
+    sub.status = SubscriptionStatus.active
+    # Suspend-Felder zurücksetzen — das Abo läuft wieder normal
+    sub.suspended_at = None
+    sub.access_until = None
+
+    session.commit()
+    session.refresh(sub)
+    return sub
+
+
 def delete_subscription(
     session: Session,
     subscription_id: uuid.UUID,
