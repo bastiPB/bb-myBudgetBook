@@ -5,13 +5,34 @@ Format based on Keep a Changelog.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-05-03
+
 ### Added
-- UI-Shell-Arbeit für v0.2.1 gestartet: Header, Sidebar und Footer als neue Layout-Bausteine
-- Dashboard-Initialansicht als erster strukturierter Einstieg (inkl. Empty-State-Ziel)
+- **AppLayout-Komponente** (`AppLayout.tsx` + `AppLayout.css`): wiederverwendbare UI-Shell für alle geschützten Seiten — Header, Sidebar, Footer
+- **Header**: Logo (BB-SVG), App-Name als Link, Dark/Light-Mode-Toggle, User-Dropdown (Initialen, E-Mail, Einstellungen, Abmelden)
+- **Dark/Light-Mode-Toggle**: Pill-förmiger Schiebeschalter mit Mond-/Sonne-SVG-Icon (Feather Icons), Zustand persistiert in `localStorage` (`bb-theme`)
+- **Sidebar**: dynamische Navigation aus `activeModules`, Admin-Bereich (Trennlinie + Sektion-Label) nur für Nutzer mit Rolle `admin`
+- **Footer**: Versionsnummer
+- **CSS Design-System**: CSS Custom Properties (`--color-*`, `--header-height`, `--sidebar-width`) als zentrale Theme-Basis für Light und Dark Mode
+- Alle geschützten Seiten auf neues Design-System umgestellt: `LoginPage`, `RegisterPage`, `AdminPage`, `SubscriptionsPage`, `SettingsPage`, `ProfileSettingsPage`, `DashboardPage`
+- ADR 0009: CSS Custom Properties als neutrales Design-System (statt Tailwind / MUI / Inline-Styles)
+- Design Guide (`docs/16-design-guide.md`): lebendige Referenz für CSS-Variablen, Klassen und Do/Don't-Regeln
+
+### Changed
+- `App.tsx`: `Layout`- und `AdminLayout`-Wrapper kombinieren `ProtectedRoute`/`AdminRoute` mit `AppLayout` — kein Code-Doppel
+- `DashboardPage`: eigener Header und Logout-Button entfernt — Navigation läuft vollständig über `AppLayout`
+- Alle Page-Komponenten: `useNavigate` + manuelle Dashboard-Buttons entfernt
+
+### Fixed
+- `SubscriptionsPage`: Spaltenbreiten-Verschiebung beim Aktivieren des Inline-Edit-Modus behoben (`table-layout: fixed` + explizite `th`-Breiten in %)
 
 ### Docs
-- Roadmap um v0.2.1-Mini-Release-Scope ergänzt
-- Release-Checklist um v0.2.1-Addendum für UI-Shell ergänzt
+- `docs/15-v021-ui-shell-and-dashboard-initial.md`: Status auf `released` gesetzt
+- `docs/05-roadmap.md`: v0.2.1 als abgeschlossen markiert; Mobile-Responsiveness bewusst in v0.2.x verschoben
+- `docs/04-release-readiness-checklist.md`: v0.2.1-Addendum aktualisiert
+
+### Known Limitations
+- **Mobile-Responsiveness**: bewusst auf v0.5.x verschoben — Fokus liegt auf Desktop
 
 ## [0.2.0] - 2026-05-01
 
