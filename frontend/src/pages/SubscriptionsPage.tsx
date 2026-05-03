@@ -79,16 +79,14 @@ export default function SubscriptionsPage() {
   )
   // Wie viele Seiten gibt es insgesamt?
   const totalPages = Math.ceil(filtered.length / pageSize)
-  // Welche Abos sollen auf der aktuellen Seite angezeigt werden?
-  const paginated = filtered.slice(currentPage * pageSize, (currentPage + 1) * pageSize)
-
-  // currentPage nach oben begrenzen wenn Einträge wegfallen (Delete/Suspend/Resume/Suche).
+  // safePage: currentPage nach oben begrenzt — verhindert leere Seite wenn Einträge wegfallen.
   // Beispiel: Seite 3 von 3, letzter Eintrag wird gelöscht → totalPages wird 2,
-  // aber currentPage bleibt 2 → paginated ist leer obwohl filtered.length > 0.
+  // safePage wird 1 → paginated zeigt korrekt die letzte Seite.
   // Math.max(..., 0) verhindert -1 wenn filtered komplett leer ist.
-  useEffect(() => {
-    setCurrentPage(p => Math.min(p, Math.max(totalPages - 1, 0)))
-  }, [filtered.length, pageSize])
+  // Kein useEffect nötig: der geclammpte Wert wird direkt beim Rendern berechnet.
+  const safePage = Math.min(currentPage, Math.max(totalPages - 1, 0))
+  // Welche Abos sollen auf der aktuellen Seite angezeigt werden?
+  const paginated = filtered.slice(safePage * pageSize, (safePage + 1) * pageSize)
 
   // Bei Änderung der Suche: zurück auf Seite 1 damit alte Ergebnisse nicht weiter blättern
   function handleSearchChange(q: string) {
@@ -103,7 +101,7 @@ export default function SubscriptionsPage() {
   }
 
   // --- Neues Abo anlegen ---
-  async function handleCreate(e: React.FormEvent<HTMLFormElement>) {
+  async function handleCreate(e: React.SyntheticEvent<HTMLFormElement>) {
     e.preventDefault()
     setCreateError(null)
 
@@ -141,7 +139,7 @@ export default function SubscriptionsPage() {
   }
 
   // --- Abo speichern ---
-  async function handleUpdate(e: React.FormEvent<HTMLFormElement>) {
+  async function handleUpdate(e: React.SyntheticEvent<HTMLFormElement>) {
     e.preventDefault()
     if (!editingId) return
     setEditError(null)
@@ -424,18 +422,18 @@ export default function SubscriptionsPage() {
             <div className="subs-pagination">
               <button
                 className="btn-outline-sm"
-                disabled={currentPage === 0}
-                onClick={() => setCurrentPage(p => p - 1)}
+                disabled={safePage === 0}
+                onClick={() => setCurrentPage(safePage - 1)}
               >
                 ← Zurück
               </button>
               <span className="subs-pagination-info">
-                Seite {currentPage + 1} von {totalPages}
+                Seite {safePage + 1} von {totalPages}
               </span>
               <button
                 className="btn-outline-sm"
-                disabled={currentPage >= totalPages - 1}
-                onClick={() => setCurrentPage(p => p + 1)}
+                disabled={safePage >= totalPages - 1}
+                onClick={() => setCurrentPage(safePage + 1)}
               >
                 Weiter →
               </button>
