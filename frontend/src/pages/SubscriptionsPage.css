@@ -173,11 +173,13 @@
 }
 
 /* Explizite Spaltenbreiten — nur bei table-layout: fixed wirksam */
-.subs-table th:nth-child(1) { width: 30%; } /* Name */
-.subs-table th:nth-child(2) { width: 12%; } /* Betrag */
-.subs-table th:nth-child(3) { width: 15%; } /* Intervall */
-.subs-table th:nth-child(4) { width: 18%; } /* Fälligkeit */
-.subs-table th:nth-child(5) { width: 25%; } /* Aktionen */
+/* v0.2.2: 6 Spalten statt 5 (neu: Status-Spalte) */
+.subs-table th:nth-child(1) { width: 27%; } /* Name */
+.subs-table th:nth-child(2) { width: 10%; } /* Status */
+.subs-table th:nth-child(3) { width: 11%; } /* Betrag */
+.subs-table th:nth-child(4) { width: 14%; } /* Intervall */
+.subs-table th:nth-child(5) { width: 13%; } /* Fälligkeit */
+.subs-table th:nth-child(6) { width: 25%; } /* Aktionen */
 
 
 .subs-table th {
@@ -289,4 +291,156 @@
   font-size: 14px;
   color: #b94040;
   padding: 32px;
+}
+
+/* ── Toolbar: Suche + Seitengrößen-Auswahl ── */
+.subs-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+/* Suchfeld — nimmt verfügbaren Platz ein, schiebt Select nach rechts */
+.subs-search {
+  flex: 1;
+  padding: 8px 12px;
+  font-size: 14px;
+  font-family: inherit;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.subs-search:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-light);
+}
+
+/* Kleines Select für Seitengröße */
+.subs-page-size-select {
+  padding: 8px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  cursor: pointer;
+  outline: none;
+  white-space: nowrap;
+}
+
+.subs-page-size-select:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-light);
+}
+
+/* ── Status-Badges ── */
+.subs-status-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+/* Aktiv: gedämpftes Grün */
+.subs-status-active {
+  background: #eafaf1;
+  color: #1d8348;
+  border: 1px solid #a9dfbf;
+}
+
+[data-theme="dark"] .subs-status-active {
+  background: #0d2e1a;
+  color: #52b788;
+  border-color: #1e5c32;
+}
+
+/* Pausiert: gedämpftes Orange */
+.subs-status-suspended {
+  background: #fef5e7;
+  color: #935116;
+  border: 1px solid #f9c46b;
+}
+
+[data-theme="dark"] .subs-status-suspended {
+  background: #2e1e05;
+  color: #f4a261;
+  border-color: #6b3c0a;
+}
+
+/* Beendet: gedämpftes Grau */
+.subs-status-canceled {
+  background: #f2f3f4;
+  color: #5d6d7e;
+  border: 1px solid #d5d8dc;
+}
+
+[data-theme="dark"] .subs-status-canceled {
+  background: #1e1e1e;
+  color: #8899aa;
+  border-color: #3a3a3a;
+}
+
+/* ── Pausieren-Button (orange Outline) ── */
+.subs-btn-suspend {
+  border-color: #e67e22 !important;
+  color: #935116 !important;
+}
+
+.subs-btn-suspend:hover {
+  background: #fef5e7 !important;
+  border-color: #d35400 !important;
+  color: #7d4408 !important;
+}
+
+[data-theme="dark"] .subs-btn-suspend {
+  border-color: #f4a261 !important;
+  color: #f4a261 !important;
+}
+
+[data-theme="dark"] .subs-btn-suspend:hover {
+  background: #2e1e05 !important;
+}
+
+/* ── Fortsetzen-Button (grüner Outline) ── */
+.subs-btn-resume {
+  border-color: #27ae60 !important;
+  color: #1d8348 !important;
+}
+
+.subs-btn-resume:hover {
+  background: #eafaf1 !important;
+  border-color: #1e8449 !important;
+  color: #145a32 !important;
+}
+
+[data-theme="dark"] .subs-btn-resume {
+  border-color: #52b788 !important;
+  color: #52b788 !important;
+}
+
+[data-theme="dark"] .subs-btn-resume:hover {
+  background: #0d2e1a !important;
+}
+
+/* ── Paginierung ── */
+.subs-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.subs-pagination-info {
+  font-size: 13px;
+  color: var(--color-text-muted);
 }

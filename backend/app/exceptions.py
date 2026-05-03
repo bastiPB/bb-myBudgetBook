@@ -71,6 +71,18 @@ class SubscriptionNotFoundError(AppError):
         super().__init__("Abo nicht gefunden.", status_code=404)
 
 
+class InvalidSubscriptionStatusError(AppError):
+    """
+    Wird geworfen, wenn ein ungültiger Status-Übergang versucht wird.
+
+    Beispiel: Ein bereits suspendiertes Abo kann nicht nochmals suspendiert werden.
+    HTTP 409 Conflict = die aktuelle Ressource erlaubt diese Aktion nicht.
+    """
+
+    def __init__(self, detail: str = "Dieser Status-Übergang ist nicht erlaubt.") -> None:
+        super().__init__(detail, status_code=409)
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     """Registriert alle globalen Fehler-Handler an der FastAPI-App."""
 
