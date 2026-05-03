@@ -4,7 +4,7 @@
 //   useEffect  = Code der einmalig beim Laden der Seite ausgeführt wird
 //   Array-State = Liste von Abos im State halten und aktualisieren
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+
 import {
   createSubscription,
   deleteSubscription,
@@ -13,6 +13,7 @@ import {
 } from '../api/subscriptions'
 import type { BillingInterval, SubscriptionRead } from '../types/subscription'
 import { INTERVAL_LABELS } from '../types/subscription'
+import './SubscriptionsPage.css'
 
 // Alle Intervalle in der gewünschten Reihenfolge für das Dropdown
 const INTERVALS: BillingInterval[] = ['monthly', 'quarterly', 'yearly', 'biennial']
@@ -21,8 +22,6 @@ const INTERVALS: BillingInterval[] = ['monthly', 'quarterly', 'yearly', 'biennia
 const EMPTY_FORM = { name: '', amount: '', next_due_date: '', interval: 'monthly' as BillingInterval }
 
 export default function SubscriptionsPage() {
-  const navigate = useNavigate()
-
   // Liste aller Abos
   const [subscriptions, setSubscriptions] = useState<SubscriptionRead[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -111,163 +110,171 @@ export default function SubscriptionsPage() {
     }
   }
 
-  // --- Render ---
-  if (loadError) return <p style={{ color: 'red', padding: 32 }}>Fehler: {loadError}</p>
+  if (loadError) return <p className="subs-load-error">Fehler: {loadError}</p>
 
   return (
-    <div style={{ maxWidth: 900, margin: '40px auto', padding: '0 16px' }}>
+    <div>
 
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h1>Meine Abos</h1>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={() => navigate('/dashboard')} style={{ padding: '8px 16px' }}>
-            ← Dashboard
-          </button>
-          <button
-            onClick={() => { setShowCreate(v => !v); setCreateForm(EMPTY_FORM) }}
-            style={{ padding: '8px 16px' }}
-          >
-            {showCreate ? 'Abbrechen' : '+ Neues Abo'}
-          </button>
-        </div>
+      {/* Seitenheader: Titel + "Neues Abo"-Button */}
+      <div className="subs-page-header">
+        <h1 className="page-title" style={{ margin: 0 }}>Meine Abos</h1>
+        <button
+          className={showCreate ? 'btn-outline' : 'btn-primary'}
+          onClick={() => { setShowCreate(v => !v); setCreateForm(EMPTY_FORM); setCreateError(null) }}
+        >
+          {showCreate ? 'Abbrechen' : '+ Neues Abo'}
+        </button>
       </div>
 
-      <hr style={{ margin: '24px 0' }} />
+      <p className="subs-count">{subscriptions.length} Abo{subscriptions.length !== 1 ? 's' : ''} eingetragen</p>
 
-      {/* Formular: Neues Abo */}
+      {/* Formular: Neues Abo anlegen */}
       {showCreate && (
-        <form onSubmit={handleCreate} style={{ marginBottom: 24, display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <h2 style={{ marginBottom: 4 }}>Neues Abo anlegen</h2>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <input
-              placeholder="Name (z.B. Netflix)"
-              value={createForm.name}
-              onChange={e => setCreateForm(f => ({ ...f, name: e.target.value }))}
-              required
-              style={{ flex: 2, padding: 8 }}
-            />
-            <input
-              placeholder="Betrag (z.B. 9.99)"
-              type="number"
-              step="0.01"
-              min="0"
-              value={createForm.amount}
-              onChange={e => setCreateForm(f => ({ ...f, amount: e.target.value }))}
-              required
-              style={{ flex: 1, padding: 8 }}
-            />
-            <input
-              type="date"
-              value={createForm.next_due_date}
-              onChange={e => setCreateForm(f => ({ ...f, next_due_date: e.target.value }))}
-              required
-              style={{ flex: 1, padding: 8 }}
-            />
-            {/* Dropdown für das Abrechnungsintervall */}
-            <select
-              value={createForm.interval}
-              onChange={e => setCreateForm(f => ({ ...f, interval: e.target.value as BillingInterval }))}
-              style={{ flex: 1, padding: 8 }}
-            >
-              {INTERVALS.map(iv => (
-                <option key={iv} value={iv}>{INTERVAL_LABELS[iv]}</option>
-              ))}
-            </select>
-          </div>
-          {createError && <p style={{ color: 'red', margin: 0 }}>{createError}</p>}
-          <button type="submit" disabled={createLoading} style={{ padding: '8px 16px', alignSelf: 'flex-start' }}>
-            {createLoading ? 'Speichern...' : 'Speichern'}
-          </button>
-        </form>
+        <div className="subs-create-card">
+          <h2>Neues Abo anlegen</h2>
+          <form onSubmit={handleCreate}>
+            <div className="subs-input-row">
+              <input
+                className="subs-input"
+                placeholder="Name (z. B. Netflix)"
+                value={createForm.name}
+                onChange={e => setCreateForm(f => ({ ...f, name: e.target.value }))}
+                required
+                autoFocus
+              />
+              <input
+                className="subs-input subs-input-sm"
+                placeholder="Betrag (z. B. 9.99)"
+                type="number"
+                step="0.01"
+                min="0"
+                value={createForm.amount}
+                onChange={e => setCreateForm(f => ({ ...f, amount: e.target.value }))}
+                required
+              />
+              <input
+                className="subs-input subs-input-sm"
+                type="date"
+                value={createForm.next_due_date}
+                onChange={e => setCreateForm(f => ({ ...f, next_due_date: e.target.value }))}
+                required
+              />
+              {/* Dropdown für das Abrechnungsintervall */}
+              <select
+                className="subs-select"
+                value={createForm.interval}
+                onChange={e => setCreateForm(f => ({ ...f, interval: e.target.value as BillingInterval }))}
+              >
+                {INTERVALS.map(iv => (
+                  <option key={iv} value={iv}>{INTERVAL_LABELS[iv]}</option>
+                ))}
+              </select>
+            </div>
+
+            {createError && <p className="subs-form-error">{createError}</p>}
+
+            <button type="submit" className="btn-primary" disabled={createLoading}>
+              {createLoading ? 'Speichern…' : 'Speichern'}
+            </button>
+          </form>
+        </div>
       )}
 
       {/* Abo-Liste */}
       {subscriptions.length === 0 ? (
-        <p style={{ color: '#666' }}>Noch keine Abos eingetragen.</p>
+        <p className="subs-empty">Noch keine Abos eingetragen.</p>
       ) : (
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ textAlign: 'left', borderBottom: '2px solid #ddd' }}>
-              <th style={{ padding: '8px' }}>Name</th>
-              <th style={{ padding: '8px' }}>Betrag (€)</th>
-              <th style={{ padding: '8px' }}>Intervall</th>
-              <th style={{ padding: '8px' }}>Nächste Fälligkeit</th>
-              <th style={{ padding: '8px' }}></th>
-            </tr>
-          </thead>
-          <tbody>
-            {subscriptions.map(sub => (
-              // Wenn dieses Abo gerade bearbeitet wird → Edit-Zeile anzeigen
-              editingId === sub.id ? (
-                <tr key={sub.id} style={{ borderBottom: '1px solid #eee', background: '#fffbe6' }}>
-                  <td colSpan={5} style={{ padding: 8 }}>
-                    <form onSubmit={handleUpdate} style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                      <input
-                        value={editForm.name}
-                        onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))}
-                        required
-                        style={{ flex: 2, padding: 6 }}
-                      />
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        value={editForm.amount}
-                        onChange={e => setEditForm(f => ({ ...f, amount: e.target.value }))}
-                        required
-                        style={{ flex: 1, padding: 6 }}
-                      />
-                      <select
-                        value={editForm.interval}
-                        onChange={e => setEditForm(f => ({ ...f, interval: e.target.value as BillingInterval }))}
-                        style={{ flex: 1, padding: 6 }}
-                      >
-                        {INTERVALS.map(iv => (
-                          <option key={iv} value={iv}>{INTERVAL_LABELS[iv]}</option>
-                        ))}
-                      </select>
-                      <input
-                        type="date"
-                        value={editForm.next_due_date}
-                        onChange={e => setEditForm(f => ({ ...f, next_due_date: e.target.value }))}
-                        required
-                        style={{ flex: 1, padding: 6 }}
-                      />
-                      {editError && <span style={{ color: 'red' }}>{editError}</span>}
-                      <button type="submit" disabled={editLoading} style={{ padding: '6px 12px' }}>
-                        {editLoading ? '...' : 'Speichern'}
-                      </button>
-                      <button type="button" onClick={() => setEditingId(null)} style={{ padding: '6px 12px' }}>
-                        Abbrechen
-                      </button>
-                    </form>
-                  </td>
-                </tr>
-              ) : (
-                // Normale Zeile
-                <tr key={sub.id} style={{ borderBottom: '1px solid #eee' }}>
-                  <td style={{ padding: 8 }}>{sub.name}</td>
-                  <td style={{ padding: 8 }}>{parseFloat(sub.amount).toFixed(2)}</td>
-                  <td style={{ padding: 8, color: '#666', fontSize: 14 }}>{INTERVAL_LABELS[sub.interval]}</td>
-                  <td style={{ padding: 8 }}>{sub.next_due_date}</td>
-                  <td style={{ padding: 8, display: 'flex', gap: 8 }}>
-                    <button onClick={() => startEdit(sub)} style={{ padding: '4px 10px' }}>
-                      Bearbeiten
-                    </button>
-                    <button
-                      onClick={() => handleDelete(sub.id, sub.name)}
-                      style={{ padding: '4px 10px', color: 'red' }}
-                    >
-                      Löschen
-                    </button>
-                  </td>
-                </tr>
-              )
-            ))}
-          </tbody>
-        </table>
+        <div className="subs-table-card">
+          <table className="subs-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Betrag (€)</th>
+                <th>Intervall</th>
+                <th>Nächste Fälligkeit</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {subscriptions.map(sub =>
+                // Wenn dieses Abo gerade bearbeitet wird → Edit-Zeile anzeigen
+                editingId === sub.id ? (
+                  <tr key={sub.id} className="is-editing">
+                    <td colSpan={5}>
+                      <form className="subs-edit-form" onSubmit={handleUpdate}>
+                        <input
+                          className="subs-input"
+                          value={editForm.name}
+                          onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))}
+                          required
+                          autoFocus
+                        />
+                        <input
+                          className="subs-input subs-input-sm"
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={editForm.amount}
+                          onChange={e => setEditForm(f => ({ ...f, amount: e.target.value }))}
+                          required
+                        />
+                        <input
+                          className="subs-input subs-input-sm"
+                          type="date"
+                          value={editForm.next_due_date}
+                          onChange={e => setEditForm(f => ({ ...f, next_due_date: e.target.value }))}
+                          required
+                        />
+                        <select
+                          className="subs-select"
+                          value={editForm.interval}
+                          onChange={e => setEditForm(f => ({ ...f, interval: e.target.value as BillingInterval }))}
+                        >
+                          {INTERVALS.map(iv => (
+                            <option key={iv} value={iv}>{INTERVAL_LABELS[iv]}</option>
+                          ))}
+                        </select>
+
+                        {editError && <span className="subs-edit-error">{editError}</span>}
+
+                        <button type="submit" className="btn-primary-sm" disabled={editLoading}>
+                          {editLoading ? '…' : 'Speichern'}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-outline-sm"
+                          onClick={() => setEditingId(null)}
+                        >
+                          Abbrechen
+                        </button>
+                      </form>
+                    </td>
+                  </tr>
+                ) : (
+                  // Normale Zeile
+                  <tr key={sub.id}>
+                    <td>{sub.name}</td>
+                    <td>{parseFloat(sub.amount).toFixed(2)}</td>
+                    <td><span className="subs-interval">{INTERVAL_LABELS[sub.interval]}</span></td>
+                    <td>{sub.next_due_date}</td>
+                    <td>
+                      <div className="subs-action-cell">
+                        <button className="btn-outline-sm" onClick={() => startEdit(sub)}>
+                          Bearbeiten
+                        </button>
+                        <button className="btn-danger" onClick={() => handleDelete(sub.id, sub.name)}>
+                          Löschen
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                )
+              )}
+            </tbody>
+          </table>
+        </div>
       )}
+
     </div>
   )
 }

@@ -2,10 +2,11 @@
 // Zeigt alle User in einer Tabelle: Status, Rolle, Aktionen (freigeben, Rolle ändern, löschen).
 // Admins können hier auch direkt neue User anlegen (sofort active, kein pending-Schritt).
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+
 import { approveUser, createUser, deleteUser, getUsers, updateUserRole } from '../api/admin'
 import { useAuth } from '../context/useAuth'
 import type { UserRead, UserRole } from '../types/user'
+import './AdminPage.css'
 
 // Alle gültigen Rollen als Array — wird für Dropdowns gebraucht
 const ROLES: UserRole[] = ['admin', 'editor', 'default']
@@ -15,7 +16,6 @@ const EMPTY_CREATE_FORM = { email: '', password: '', role: 'editor' as UserRole 
 
 export default function AdminPage() {
   const { user: currentUser } = useAuth()
-  const navigate = useNavigate()
 
   // Liste aller User + möglicher Ladefehler
   const [users, setUsers] = useState<UserRead[]>([])
@@ -112,179 +112,159 @@ export default function AdminPage() {
     }
   }
 
-  if (loadError) return <p style={{ color: 'red', padding: 32 }}>Fehler: {loadError}</p>
+  if (loadError) return <p className="admin-load-error">Fehler: {loadError}</p>
 
   return (
-    <div style={{ maxWidth: 900, margin: '40px auto', padding: '0 16px' }}>
+    <div>
 
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h1>Admin — User-Verwaltung</h1>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={() => navigate('/dashboard')} style={{ padding: '8px 16px' }}>
-            ← Dashboard
-          </button>
-          <button
-            onClick={() => { setShowCreate(v => !v); setCreateForm(EMPTY_CREATE_FORM); setCreateError(null) }}
-            style={{ padding: '8px 16px' }}
-          >
-            {showCreate ? 'Abbrechen' : '+ Neuen User anlegen'}
-          </button>
-        </div>
+      {/* Seitenheader: Titel + "Neuen User anlegen"-Button */}
+      <div className="admin-page-header">
+        <h1 className="page-title" style={{ margin: 0 }}>User-Verwaltung</h1>
+        <button
+          className={showCreate ? 'btn-outline' : 'btn-primary'}
+          onClick={() => { setShowCreate(v => !v); setCreateForm(EMPTY_CREATE_FORM); setCreateError(null) }}
+        >
+          {showCreate ? 'Abbrechen' : '+ Neuen User anlegen'}
+        </button>
       </div>
-      <p style={{ color: '#666', marginTop: 4 }}>
-        {users.length} User registriert
-      </p>
 
-      <hr style={{ margin: '24px 0' }} />
+      <p className="admin-count">{users.length} User registriert</p>
 
       {/* Formular: Neuen User anlegen */}
       {showCreate && (
-        <form
-          onSubmit={handleCreate}
-          style={{ marginBottom: 24, display: 'flex', flexDirection: 'column', gap: 12 }}
-        >
-          <h2 style={{ marginBottom: 4 }}>Neuen User anlegen</h2>
-          <p style={{ color: '#666', fontSize: 14, margin: 0 }}>
+        <div className="admin-create-card">
+          <h2>Neuen User anlegen</h2>
+          <p>
             Der User wird sofort freigeschaltet. Teile das Passwort dem User mit — er kann es später ändern.
           </p>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <input
-              type="email"
-              placeholder="E-Mail"
-              value={createForm.email}
-              onChange={e => setCreateForm(f => ({ ...f, email: e.target.value }))}
-              required
-              style={{ flex: 2, padding: 8 }}
-            />
-            <input
-              type="password"
-              placeholder="Passwort (min. 8 Zeichen)"
-              value={createForm.password}
-              onChange={e => setCreateForm(f => ({ ...f, password: e.target.value }))}
-              required
-              minLength={8}
-              style={{ flex: 2, padding: 8 }}
-            />
-            {/* Rollen-Dropdown — Standard ist editor (häufigstes Familienmitglied) */}
-            <select
-              value={createForm.role}
-              onChange={e => setCreateForm(f => ({ ...f, role: e.target.value as UserRole }))}
-              style={{ flex: 1, padding: 8 }}
-            >
-              {ROLES.map(r => (
-                <option key={r} value={r}>{r}</option>
-              ))}
-            </select>
-          </div>
-          {createError && <p style={{ color: 'red', margin: 0 }}>{createError}</p>}
-          <button
-            type="submit"
-            disabled={createLoading}
-            style={{ padding: '8px 16px', alignSelf: 'flex-start' }}
-          >
-            {createLoading ? 'Anlegen...' : 'Anlegen'}
-          </button>
-        </form>
+          <form onSubmit={handleCreate}>
+            <div className="admin-input-row">
+              <input
+                className="admin-input"
+                type="email"
+                placeholder="E-Mail"
+                value={createForm.email}
+                onChange={e => setCreateForm(f => ({ ...f, email: e.target.value }))}
+                required
+                autoFocus
+              />
+              <input
+                className="admin-input"
+                type="password"
+                placeholder="Passwort (min. 8 Zeichen)"
+                value={createForm.password}
+                onChange={e => setCreateForm(f => ({ ...f, password: e.target.value }))}
+                required
+                minLength={8}
+              />
+              {/* Rollen-Dropdown — Standard ist editor (häufigstes Familienmitglied) */}
+              <select
+                className="admin-select"
+                value={createForm.role}
+                onChange={e => setCreateForm(f => ({ ...f, role: e.target.value as UserRole }))}
+              >
+                {ROLES.map(r => (
+                  <option key={r} value={r}>{r}</option>
+                ))}
+              </select>
+            </div>
+
+            {createError && <p className="admin-form-error">{createError}</p>}
+
+            <button type="submit" className="btn-primary" disabled={createLoading}>
+              {createLoading ? 'Anlegen…' : 'Anlegen'}
+            </button>
+          </form>
+        </div>
       )}
 
       {/* User-Tabelle */}
       {users.length === 0 ? (
-        <p style={{ color: '#666' }}>Keine User gefunden.</p>
+        <p className="admin-empty">Keine User gefunden.</p>
       ) : (
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ textAlign: 'left', borderBottom: '2px solid #ddd' }}>
-              <th style={{ padding: '8px' }}>E-Mail</th>
-              <th style={{ padding: '8px' }}>Status</th>
-              <th style={{ padding: '8px' }}>Rolle</th>
-              <th style={{ padding: '8px' }}>Aktionen</th>
-            </tr>
-          </thead>
-          <tbody>
-            {users.map(u => {
-              const isSelf = u.id === currentUser?.id
-              const isPending = pendingIds.has(u.id)
-              const rowError = errors[u.id]
+        <div className="admin-table-card">
+          <table className="admin-table">
+            <thead>
+              <tr>
+                <th>E-Mail</th>
+                <th>Status</th>
+                <th>Rolle</th>
+                <th>Aktionen</th>
+              </tr>
+            </thead>
+            <tbody>
+              {users.map(u => {
+                const isSelf = u.id === currentUser?.id
+                const isPending = pendingIds.has(u.id)
+                const rowError = errors[u.id]
 
-              return (
-                <tr
-                  key={u.id}
-                  style={{
-                    borderBottom: '1px solid #eee',
-                    // Eigene Zeile leicht hervorheben
-                    background: isSelf ? '#f0f8ff' : undefined,
-                  }}
-                >
-                  {/* E-Mail + "(du)" Markierung */}
-                  <td style={{ padding: 8 }}>
-                    {u.email}
-                    {isSelf && <span style={{ color: '#888', fontSize: 12, marginLeft: 6 }}>(du)</span>}
-                  </td>
+                return (
+                  <tr key={u.id} className={isSelf ? 'is-self' : undefined}>
 
-                  {/* Status als farbiges Badge */}
-                  <td style={{ padding: 8 }}>
-                    <span style={{
-                      padding: '2px 8px',
-                      borderRadius: 4,
-                      fontSize: 13,
-                      background: u.status === 'active' ? '#d4edda' : '#fff3cd',
-                      color: u.status === 'active' ? '#155724' : '#856404',
-                    }}>
-                      {u.status === 'active' ? 'Aktiv' : 'Ausstehend'}
-                    </span>
-                  </td>
+                    {/* E-Mail + "(du)"-Markierung */}
+                    <td>
+                      {u.email}
+                      {isSelf && <span className="self-badge">(du)</span>}
+                    </td>
 
-                  {/* Rolle als Dropdown — deaktiviert für sich selbst */}
-                  <td style={{ padding: 8 }}>
-                    <select
-                      value={u.role}
-                      disabled={isSelf || isPending}
-                      onChange={e => handleRoleChange(u.id, e.target.value as UserRole)}
-                      style={{ padding: '4px 8px' }}
-                    >
-                      {ROLES.map(r => (
-                        <option key={r} value={r}>{r}</option>
-                      ))}
-                    </select>
-                  </td>
+                    {/* Status als farbiges Badge */}
+                    <td>
+                      <span className={`badge ${u.status === 'active' ? 'badge--active' : 'badge--pending'}`}>
+                        {u.status === 'active' ? 'Aktiv' : 'Ausstehend'}
+                      </span>
+                    </td>
 
-                  {/* Aktions-Buttons */}
-                  <td style={{ padding: 8 }}>
-                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-
-                      {/* Freigeben — nur sichtbar wenn Status "pending" */}
-                      {u.status === 'pending' && (
-                        <button
-                          onClick={() => handleApprove(u.id)}
-                          disabled={isPending}
-                          style={{ padding: '4px 10px', color: 'green' }}
-                        >
-                          {isPending ? '...' : 'Freigeben'}
-                        </button>
-                      )}
-
-                      {/* Löschen — deaktiviert für sich selbst */}
-                      <button
-                        onClick={() => handleDelete(u.id, u.email)}
+                    {/* Rolle als Dropdown — deaktiviert für sich selbst */}
+                    <td>
+                      <select
+                        className="role-select"
+                        value={u.role}
                         disabled={isSelf || isPending}
-                        style={{ padding: '4px 10px', color: 'red' }}
+                        onChange={e => handleRoleChange(u.id, e.target.value as UserRole)}
                       >
-                        Löschen
-                      </button>
+                        {ROLES.map(r => (
+                          <option key={r} value={r}>{r}</option>
+                        ))}
+                      </select>
+                    </td>
 
-                      {/* Fehlermeldung für diese Zeile */}
-                      {rowError && (
-                        <span style={{ color: 'red', fontSize: 13 }}>{rowError}</span>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
+                    {/* Aktions-Buttons */}
+                    <td>
+                      <div className="action-cell">
+
+                        {/* Freigeben — nur sichtbar wenn Status "pending" */}
+                        {u.status === 'pending' && (
+                          <button
+                            className="btn-approve"
+                            onClick={() => handleApprove(u.id)}
+                            disabled={isPending}
+                          >
+                            {isPending ? '…' : 'Freigeben'}
+                          </button>
+                        )}
+
+                        {/* Löschen — deaktiviert für sich selbst */}
+                        <button
+                          className="btn-danger"
+                          onClick={() => handleDelete(u.id, u.email)}
+                          disabled={isSelf || isPending}
+                        >
+                          Löschen
+                        </button>
+
+                        {/* Fehlermeldung für diese Zeile */}
+                        {rowError && <span className="row-error">{rowError}</span>}
+
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
       )}
+
     </div>
   )
 }

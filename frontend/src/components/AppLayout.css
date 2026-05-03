@@ -1,0 +1,476 @@
+/* ============================================================
+   CSS-Variablen: Farbschema für Light und Dark Mode
+   Alle Komponenten innerhalb der App-Shell nutzen diese Variablen.
+   Der Wechsel zwischen Light/Dark erfolgt per data-theme-Attribut am <html>-Element.
+   ============================================================ */
+:root {
+  /* Hintergrundfarben */
+  --color-bg:            #f4f5f7;
+  --color-surface:       #ffffff;
+  --color-sidebar:       #f8f9fb;
+  --color-header-bg:     #ffffff;
+  --color-footer-bg:     #f0f2f5;
+
+  /* Rahmen und Trennlinien */
+  --color-border:        #e2e5ea;
+
+  /* Texte */
+  --color-text:          #1c2029;
+  --color-text-muted:    #6b7585;
+
+  /* Akzentfarbe (gedämpftes Blau — keine Knallfarbe) */
+  --color-accent:        #4a6fa5;
+  --color-accent-hover:  #3a5988;
+  --color-accent-light:  #eef3fa;
+
+  /* Layout-Maße — zentral definiert, leicht änderbar */
+  --header-height:       56px;
+  --footer-height:       36px;
+  --sidebar-width:       220px;
+}
+
+/* Dark Mode — nur die Farben wechseln, Maße und Struktur bleiben gleich */
+[data-theme="dark"] {
+  --color-bg:            #12141a;
+  --color-surface:       #1c1f28;
+  --color-sidebar:       #181b24;
+  --color-header-bg:     #1c1f28;
+  --color-footer-bg:     #12141a;
+
+  --color-border:        #2c3044;
+
+  --color-text:          #e2e5ec;
+  --color-text-muted:    #8f97aa;
+
+  --color-accent:        #6b9fd4;
+  --color-accent-hover:  #88b5e0;
+  --color-accent-light:  #1e2940;
+}
+
+/* ============================================================
+   Globale Overrides — Body-Hintergrund via Variable
+   (Reset ist bereits in index.css)
+   ============================================================ */
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  /* Weiche Übergänge beim Theme-Wechsel */
+  transition: background 0.2s, color 0.2s;
+}
+
+/* ============================================================
+   App-Shell: das Gesamt-Gitter der Seite
+   Drei Zeilen: Header (fest) / Body (wächst) / Footer (fest)
+   ============================================================ */
+.app-shell {
+  display: grid;
+  grid-template-rows: var(--header-height) 1fr var(--footer-height);
+  min-height: 100vh;
+}
+
+/* ============================================================
+   HEADER
+   ============================================================ */
+.app-header {
+  background: var(--color-header-bg);
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  /* Klebt am oberen Rand — bleibt beim Scrollen sichtbar */
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+/* Logo + App-Name links im Header */
+.app-logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+  color: var(--color-text);
+  font-weight: 600;
+  font-size: 16px;
+  letter-spacing: -0.01em;
+  transition: color 0.15s;
+}
+
+.app-logo:hover {
+  color: var(--color-accent);
+}
+
+/* Rechte Seite des Headers */
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Hell/Dunkel-Schalter — Toggle-Pill
+   Aufbau: Flex-Container mit [Icon] und [Daumen] als Kinder.
+   Durch flex-direction-Wechsel tauschen Icon und Daumen die Seite —
+   kein absolutes Positioning, keine Overflow-Probleme. */
+.theme-toggle-switch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 3px;
+  width: 52px;
+  height: 26px;
+  border-radius: 13px;
+  border: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.3s ease;
+}
+
+/* Dark: Icon (Mond) LINKS, Daumen RECHTS — DOM-Reihenfolge [icon, thumb] */
+.theme-toggle-switch.is-dark {
+  background: #454b66;          /* deutlich sichtbar gegen den dunklen Header */
+  flex-direction: row;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+/* Light: Daumen LINKS, Icon (Sonne) RECHTS — durch row-reverse getauscht */
+.theme-toggle-switch.is-light {
+  background: #c8cdd8;
+  flex-direction: row-reverse;
+  color: #2c3044;
+}
+
+/* Daumen (der runde Kreis) */
+.toggle-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  transition: background 0.3s ease;
+}
+
+.is-dark  .toggle-thumb { background: #ffffff; }
+.is-light .toggle-thumb { background: #2c3044; }
+
+/* Icon-Wrapper */
+.toggle-icon {
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* User-Button: Kreis mit den zwei Initialen des Nutzers */
+.user-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 2px solid var(--color-border);
+  background: var(--color-accent-light);
+  color: var(--color-accent);
+  font-weight: 700;
+  font-size: 11px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.15s, background 0.15s;
+  flex-shrink: 0;
+}
+
+.user-btn:hover {
+  border-color: var(--color-accent);
+}
+
+/* Wrapper für das User-Dropdown — position: relative als Anker */
+.user-menu-wrapper {
+  position: relative;
+}
+
+/* Dropdown-Menü des User-Buttons */
+.user-menu-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 200px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.10);
+  z-index: 200;
+  overflow: hidden;
+  animation: dropdown-in 0.12s ease;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+/* Kleine Einblend-Animation für das Dropdown */
+@keyframes dropdown-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* E-Mail-Anzeige ganz oben im Dropdown — rein informativ */
+.user-menu-email {
+  padding: 10px 14px 8px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  border-bottom: 1px solid var(--color-border);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Einzelne Menüeinträge — Links und Buttons vereinheitlicht */
+.user-menu-item {
+  display: block;
+  width: 100%;
+  padding: 9px 14px;
+  text-align: left;
+  text-decoration: none;
+  color: var(--color-text);
+  background: transparent;
+  border: none;
+  font-size: 14px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+  box-sizing: border-box;
+}
+
+.user-menu-item:hover {
+  background: var(--color-accent-light);
+  color: var(--color-accent);
+}
+
+/* Trennlinie innerhalb des Dropdowns */
+.user-menu-divider {
+  margin: 4px 0;
+  border: none;
+  border-top: 1px solid var(--color-border);
+}
+
+/* ============================================================
+   APP-BODY: Sidebar + Hauptinhalt nebeneinander
+   ============================================================ */
+.app-body {
+  display: flex;
+  /* min-height: 0 verhindert, dass Flex-Kinder den Grid-Bereich überlaufen */
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ============================================================
+   SIDEBAR
+   ============================================================ */
+.app-sidebar {
+  width: var(--sidebar-width);
+  flex-shrink: 0;
+  background: var(--color-sidebar);
+  border-right: 1px solid var(--color-border);
+  padding: 12px 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+/* Nav-Links in der Sidebar */
+.nav-link {
+  display: block;
+  padding: 9px 20px;
+  text-decoration: none;
+  color: var(--color-text-muted);
+  font-size: 14px;
+  border-left: 3px solid transparent;
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
+}
+
+.nav-link:hover {
+  background: var(--color-accent-light);
+  color: var(--color-accent);
+  border-left-color: var(--color-accent);
+}
+
+/* Aktiver Link — react-router-dom NavLink setzt die Klasse "active" automatisch */
+.nav-link.active {
+  background: var(--color-accent-light);
+  color: var(--color-accent);
+  border-left-color: var(--color-accent);
+  font-weight: 600;
+}
+
+/* Horizontale Trennlinie zwischen normalen und Admin-Links */
+.nav-divider {
+  margin: 12px 16px;
+  border: none;
+  border-top: 1px solid var(--color-border);
+}
+
+/* Kleine Beschriftung über der Admin-Sektion */
+.nav-section-label {
+  display: block;
+  padding: 2px 20px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-muted);
+}
+
+/* ============================================================
+   HAUPTINHALT
+   ============================================================ */
+.app-main {
+  flex: 1;
+  overflow-y: auto;
+  padding: 32px;
+  background: var(--color-bg);
+  transition: background 0.2s;
+}
+
+/* ============================================================
+   FOOTER
+   ============================================================ */
+.app-footer {
+  background: var(--color-footer-bg);
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 20px;
+  font-size: 11px;
+  color: var(--color-text-muted);
+  transition: background 0.2s, border-color 0.2s;
+}
+
+/* ============================================================
+   DASHBOARD-INHALTE
+   Karten und Übersichts-Elemente im Hauptbereich
+   ============================================================ */
+
+/* Seitentitel oben im Hauptbereich */
+.page-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--color-text);
+  margin: 0 0 24px;
+}
+
+/* Allgemeine Inhalts-Karte (weiße Box mit Rahmen) */
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: 24px 28px;
+  margin-bottom: 20px;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.card h2 {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+}
+
+/* Große Zahl (z. B. monatliche Gesamtkosten) */
+.card .amount-large {
+  font-size: 34px;
+  font-weight: 700;
+  color: var(--color-text);
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+/* Liste der nächsten Fälligkeiten */
+.upcoming-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.upcoming-list li {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text);
+  font-size: 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.upcoming-list li:last-child {
+  border-bottom: none;
+}
+
+.upcoming-date {
+  color: var(--color-text-muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+/* Onboarding-Karte — hebt sich durch Akzent-Rand ab */
+.onboarding-card {
+  background: var(--color-accent-light);
+  border: 1px solid var(--color-accent);
+  border-radius: 10px;
+  padding: 28px 32px;
+  margin-bottom: 24px;
+}
+
+.onboarding-card h2 {
+  margin: 0 0 8px;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--color-text);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.onboarding-card p {
+  margin: 0 0 20px;
+  color: var(--color-text-muted);
+  font-size: 14px;
+}
+
+/* Warte-Ansicht für Nutzer ohne Rolle */
+.pending-view {
+  max-width: 460px;
+  margin: 60px auto;
+  text-align: center;
+  color: var(--color-text-muted);
+}
+
+.pending-view h1 {
+  font-size: 22px;
+  color: var(--color-text);
+  margin-bottom: 12px;
+}
+
+/* Primärer Button */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  padding: 9px 20px;
+  border-radius: 6px;
+  border: 1px solid var(--color-accent);
+  background: var(--color-accent);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.btn-primary:hover {
+  background: var(--color-accent-hover);
+  border-color: var(--color-accent-hover);
+}

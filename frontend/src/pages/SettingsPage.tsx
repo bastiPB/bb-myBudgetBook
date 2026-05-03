@@ -2,15 +2,14 @@
 // Abschnitt 1: Module freischalten (alle aus MODULE_REGISTRY mit Checkbox)
 // Abschnitt 2: Selbst-Registrierung ein/aus
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 
 import { fetchSystemSettings, patchSystemSettings } from '../api/settings'
 import type { SystemSettings } from '../api/settings'
 import { useModules } from '../context/useModules'
 import { MODULE_REGISTRY } from '../modules/registry'
+import './SettingsPage.css'
 
 export default function SettingsPage() {
-  const navigate = useNavigate()
   const { reload } = useModules()
   const [settings, setSettings] = useState<SystemSettings | null>(null)
   const [saving, setSaving] = useState(false)
@@ -55,84 +54,73 @@ export default function SettingsPage() {
   }
 
   if (!settings) {
-    return <div style={{ padding: '2rem' }}>Lade Einstellungen...</div>
+    return <p className="settings-loading">Lade Einstellungen…</p>
   }
 
   return (
-    <div style={{ maxWidth: 800, margin: '40px auto', padding: '0 16px' }}>
+    <div>
 
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h1>System-Einstellungen</h1>
-        <button onClick={() => navigate('/dashboard')} style={{ padding: '8px 16px' }}>
-          Dashboard
-        </button>
-      </div>
-      <p style={{ color: '#666', marginTop: 4 }}>
-        Änderungen gelten sofort für alle User.
-      </p>
+      <h1 className="page-title">Systemeinstellungen</h1>
+      <p className="settings-subtitle">Änderungen gelten sofort für alle User.</p>
 
-      {error && <p style={{ color: 'red', marginTop: 8 }}>{error}</p>}
+      {error && <p className="settings-error">{error}</p>}
 
-      <hr style={{ margin: '24px 0' }} />
-
-      {/* Abschnitt 1: Module */}
-      <section>
+      {/* ── Abschnitt 1: Module ── */}
+      <div className="settings-card">
         <h2>Module</h2>
-        <p style={{ color: '#666', marginBottom: 16 }}>
+        <p>
           Lege fest, welche Module systemweit verfügbar sind.
           User können nur aus freigegebenen Modulen für ihr Dashboard wählen.
         </p>
 
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <table className="settings-table">
           <thead>
-            <tr style={{ borderBottom: '2px solid #ddd' }}>
-              <th style={{ textAlign: 'left', padding: '8px 0', width: '25%' }}>Modul</th>
-              <th style={{ textAlign: 'left', padding: '8px 12px' }}>Beschreibung</th>
-              <th style={{ textAlign: 'center', padding: '8px 0', width: '80px' }}>Aktiv</th>
+            <tr>
+              <th>Modul</th>
+              <th>Beschreibung</th>
+              <th className="col-toggle">Aktiv</th>
             </tr>
           </thead>
           <tbody>
             {MODULE_REGISTRY.map(module => (
-              <tr key={module.key} style={{ borderBottom: '1px solid #f0f0f0' }}>
-                <td style={{ padding: '12px 0', fontWeight: 500 }}>{module.label}</td>
-                <td style={{ padding: '12px 12px', color: '#666' }}>{module.description}</td>
-                <td style={{ padding: '12px 0', textAlign: 'center' }}>
+              <tr key={module.key}>
+                <td><span className="module-name">{module.label}</span></td>
+                <td><span className="module-desc">{module.description}</span></td>
+                <td className="col-toggle">
                   <input
+                    className="settings-checkbox"
                     type="checkbox"
                     checked={settings.modules[module.key] === true}
                     onChange={e => toggleModule(module.key, e.target.checked)}
                     disabled={saving}
-                    style={{ width: 18, height: 18, cursor: saving ? 'wait' : 'pointer' }}
                   />
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
-      </section>
+      </div>
 
-      <hr style={{ margin: '32px 0' }} />
-
-      {/* Abschnitt 2: Selbst-Registrierung */}
-      <section>
+      {/* ── Abschnitt 2: Selbst-Registrierung ── */}
+      <div className="settings-card">
         <h2>Selbst-Registrierung</h2>
-        <p style={{ color: '#666', marginBottom: 16 }}>
+        <p>
           Wenn aktiv, können neue User sich unter /register selbst einen Account anlegen
           (wartet dann auf Admin-Freigabe). Wenn deaktiviert, kann nur der Admin neue
           Accounts erstellen.
         </p>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
+        <label className="settings-toggle-row">
           <input
             type="checkbox"
             checked={settings.email_signup_enabled}
             onChange={e => toggleSignup(e.target.checked)}
             disabled={saving}
-            style={{ width: 18, height: 18 }}
           />
-          <span>Selbst-Registrierung über /register erlauben</span>
+          <span className="settings-toggle-label">
+            Selbst-Registrierung über /register erlauben
+          </span>
         </label>
-      </section>
+      </div>
 
     </div>
   )

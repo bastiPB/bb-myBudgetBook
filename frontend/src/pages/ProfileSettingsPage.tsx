@@ -2,14 +2,13 @@
 // Abschnitt 1: Anzeigename (+ Avatar-Platzhalter für v0.2.x)
 // Abschnitt 2: Module — nur Admin-freigegebene erscheinen zur Auswahl
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 
 import { fetchProfileSettings, patchProfileSettings } from '../api/profile'
 import type { ProfileSettings } from '../api/profile'
 import { useModules } from '../context/useModules'
+import './ProfileSettingsPage.css'
 
 export default function ProfileSettingsPage() {
-  const navigate = useNavigate()
   const { availableModules, reload } = useModules()
   const [profile, setProfile] = useState<ProfileSettings | null>(null)
   // Lokaler State für das Textfeld — wird beim Laden mit dem gespeicherten Wert befüllt
@@ -67,106 +66,88 @@ export default function ProfileSettingsPage() {
   }
 
   if (!profile) {
-    return <div style={{ padding: '2rem' }}>Lade Profil...</div>
+    return <p className="settings-loading">Lade Profil…</p>
   }
 
   return (
-    <div style={{ maxWidth: 700, margin: '40px auto', padding: '0 16px' }}>
+    <div>
 
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h1>Mein Profil</h1>
-        <button onClick={() => navigate('/dashboard')} style={{ padding: '8px 16px' }}>
-          Dashboard
-        </button>
-      </div>
+      <h1 className="page-title">Mein Profil</h1>
 
-      {error && <p style={{ color: 'red', marginTop: 8 }}>{error}</p>}
+      {error && <p className="settings-error">{error}</p>}
 
-      <hr style={{ margin: '24px 0' }} />
-
-      {/* Abschnitt 1: Profildaten */}
-      <section>
+      {/* ── Abschnitt 1: Profildaten ── */}
+      <div className="settings-card">
         <h2>Profildaten</h2>
 
-        <div style={{ marginBottom: 20 }}>
-          <label style={{ display: 'block', marginBottom: 6, fontWeight: 500 }}>
-            Anzeigename
-          </label>
-          <p style={{ color: '#666', fontSize: 14, margin: '0 0 8px' }}>
-            Wird auf dem Dashboard zur Begrüßung angezeigt. Leer lassen = E-Mail-Adresse als Fallback.
-          </p>
-          <div style={{ display: 'flex', gap: 12 }}>
-            <input
-              type="text"
-              value={displayNameInput}
-              onChange={e => { setDisplayNameInput(e.target.value); setNameSaved(false) }}
-              placeholder="z.B. Sparfuchs"
-              maxLength={100}
-              style={{ padding: '8px 12px', fontSize: 15, flex: 1 }}
-            />
-            <button
-              onClick={saveDisplayName}
-              disabled={saving}
-              style={{ padding: '8px 16px' }}
-            >
-              {saving ? 'Speichert...' : 'Speichern'}
-            </button>
-          </div>
-          {nameSaved && (
-            <p style={{ color: 'green', marginTop: 6, fontSize: 14 }}>Gespeichert!</p>
-          )}
+        <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: 'var(--color-text-muted)', marginBottom: 4 }}>
+          Anzeigename
+        </label>
+        <p style={{ fontSize: 13, color: 'var(--color-text-muted)', margin: '0 0 4px' }}>
+          Wird auf dem Dashboard zur Begrüßung angezeigt. Leer lassen = E-Mail-Adresse als Fallback.
+        </p>
+
+        <div className="profile-name-row">
+          <input
+            className="profile-name-input"
+            type="text"
+            value={displayNameInput}
+            onChange={e => { setDisplayNameInput(e.target.value); setNameSaved(false) }}
+            placeholder="z. B. Sparfuchs"
+            maxLength={100}
+          />
+          <button
+            className="btn-primary"
+            onClick={saveDisplayName}
+            disabled={saving}
+          >
+            {saving ? 'Speichert…' : 'Speichern'}
+          </button>
         </div>
+
+        {nameSaved && <p className="profile-success">Gespeichert!</p>}
 
         {/* Avatar — Platzhalter, Upload folgt in v0.2.x */}
-        <div style={{
-          color: '#999',
-          fontSize: 14,
-          borderTop: '1px solid #f0f0f0',
-          paddingTop: 12,
-          fontStyle: 'italic',
-        }}>
+        <p className="profile-avatar-placeholder">
           Profilbild — Upload wird in einer zukünftigen Version verfügbar sein.
-        </div>
-      </section>
+        </p>
+      </div>
 
-      <hr style={{ margin: '32px 0' }} />
-
-      {/* Abschnitt 2: Module */}
-      <section>
+      {/* ── Abschnitt 2: Module ── */}
+      <div className="settings-card">
         <h2>Meine Module</h2>
 
         {availableModules.length === 0 ? (
-          <p style={{ color: '#666' }}>
+          <p className="profile-no-modules">
             Noch keine Module vom Admin freigegeben. Bitte wende dich an deinen Administrator.
           </p>
         ) : (
           <>
-            <p style={{ color: '#666', marginBottom: 16 }}>
+            <p>
               Wähle welche Module du in deinem Dashboard sehen möchtest.
               Nur vom Admin freigegebene Module stehen zur Auswahl.
             </p>
 
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <table className="settings-table">
               <thead>
-                <tr style={{ borderBottom: '2px solid #ddd' }}>
-                  <th style={{ textAlign: 'left', padding: '8px 0', width: '25%' }}>Modul</th>
-                  <th style={{ textAlign: 'left', padding: '8px 12px' }}>Beschreibung</th>
-                  <th style={{ textAlign: 'center', padding: '8px 0', width: '80px' }}>Aktiv</th>
+                <tr>
+                  <th>Modul</th>
+                  <th>Beschreibung</th>
+                  <th className="col-toggle">Aktiv</th>
                 </tr>
               </thead>
               <tbody>
                 {availableModules.map(module => (
-                  <tr key={module.key} style={{ borderBottom: '1px solid #f0f0f0' }}>
-                    <td style={{ padding: '12px 0', fontWeight: 500 }}>{module.label}</td>
-                    <td style={{ padding: '12px 12px', color: '#666' }}>{module.description}</td>
-                    <td style={{ padding: '12px 0', textAlign: 'center' }}>
+                  <tr key={module.key}>
+                    <td><span className="module-name">{module.label}</span></td>
+                    <td><span className="module-desc">{module.description}</span></td>
+                    <td className="col-toggle">
                       <input
+                        className="settings-checkbox"
                         type="checkbox"
                         checked={profile.modules[module.key] === true}
                         onChange={e => toggleModule(module.key, e.target.checked)}
                         disabled={saving}
-                        style={{ width: 18, height: 18, cursor: saving ? 'wait' : 'pointer' }}
                       />
                     </td>
                   </tr>
@@ -175,7 +156,7 @@ export default function ProfileSettingsPage() {
             </table>
           </>
         )}
-      </section>
+      </div>
 
     </div>
   )

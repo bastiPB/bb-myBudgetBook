@@ -1,0 +1,4 @@
+/* RegisterPage.css
+   Die Auth-Seiten (Login + Register) teilen sich dasselbe Basis-Styling.
+   TODO: LoginPage.css später in auth.css umbenennen, dann hier den Import anpassen. */
+@import './LoginPage.css';
