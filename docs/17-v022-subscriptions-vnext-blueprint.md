@@ -255,6 +255,7 @@ Ergebnis:
 - Upload Endpoint + Speicherung
 - Thumbnail/Detail-Skalierung im Frontend
 - Fallback-Icon
+- Storage-Entscheidung ist verbindlich ueber ADR 0010: lokales Dateisystem, relativer Pfad in DB
 
 Ergebnis:
 - visuelle Verbesserung
@@ -263,6 +264,38 @@ Ergebnis:
 - `GET /subscriptions/{id}/price-history` Endpoint
 - UI-Anzeige der Preishistorie auf Detailseite
 - Daten sind ab Slice A bereits vorhanden
+
+Hinweis:
+- Slice E bleibt bewusst unveraendert und fokussiert weiterhin nur Preishistorie.
+
+### Slice F (geplante Buchungshistorie + Scheduler)
+- Neue Tabelle `subscription_scheduled_payments`
+- Scheduler erzeugt nachts um 03:00 (Default) alle faelligen Soll-Buchungen
+- Zusaetzlicher manueller Trigger (z. B. Admin-Action) zum sofortigen Erzeugen faelliger Soll-Buchungen
+- Scheduler-Uhrzeit als Systemeinstellung konfigurierbar; aenderbar nur durch Admin
+- Modul-Konfiguration in `user_module_configurations.config` nutzt namespacete Keys:
+  - `subscription_cumulative_calculation`
+  - `subscription_booking_history`
+- Profile-Settings-Ansicht des Users muss diese beiden Toggles separat anzeigen und speichern
+- Harte Idempotenz-Regel gegen Doppelanlagen:
+  - mehrfaches Klicken auf manuellen Trigger darf keine Duplikate erzeugen
+  - mehrfaches Scheduler-Laufen (z. B. Retry/Restart) darf keine Duplikate erzeugen
+  - technische Absicherung ueber eindeutigen Schluessel je Abo+Periode (z. B. `UNIQUE(subscription_id, due_date)`)
+
+Ergebnis:
+- Soll-Buchungen sind nachvollziehbar, robust und doppelsicher angelegt
+
+### Slice G (Detailseite: Buchungstabelle)
+- Tabelle auf der Subscription-Detailseite mit Eintraegen aus `subscription_scheduled_payments`
+- Spalten mindestens:
+  - Faelligkeit (`due_date`)
+  - Erwarteter Betrag
+  - Status (`pending | matched | missed` als Startmenge)
+  - Match-Info (falls vorhanden)
+- Filter/Sortierung fuer schnelle Pruefung offener vs. erledigter Buchungen
+
+Ergebnis:
+- User sieht pro Abo transparent, welche Soll-Buchungen erzeugt und wie sie bewertet wurden
 
 ---
 
@@ -275,12 +308,27 @@ Ergebnis:
 - einfache Naeherung aus started_on + aktuellem amount + interval
 - oder exakt mit kuenftigem Preisverlauf?
 
-3. Logo-Storage
-- lokal im Backend-Dateisystem (einfach)
-- oder spaeter objekt storage (skalierbar)
+3. Logo-Storage (entschieden)
+- Entscheidung: Option A aus ADR 0010 (lokales Dateisystem)
+- DB speichert relativen Pfad; Migrationspfad zu Object Storage bleibt offen
+- Konvention fuer Upload-Pfade: `/uploads/<modul>/`
+- Bekannte Backup-Luecke ist akzeptiert und in EPIC 06 als Folgeauftrag dokumentiert
 
 4. DELETE Verhalten
 - fuer v0.2.2 behalten oder auf "nur admin / nur hard cleanup" verschieben?
+
+5. Modul-Key-Namenskonvention (entschieden)
+- Modul-spezifische Flags in `user_module_configurations.config` erhalten immer ein Modul-Prefix
+- Fuer den Abo-Manager gilt verbindlich:
+  - `subscription_cumulative_calculation`
+  - `subscription_booking_history`
+- Grund: Kollisionen mit gleich benannten Flags aus anderen Modulen vermeiden
+- Folge: Profile Settings (User) muss diese Keys lesen/schreiben; keine generischen Kurzkeys ohne Prefix
+
+### Referenzen zur Entscheidung
+
+- ADR 0010: `docs/adr/0010-local-filesystem-storage-for-user-uploads.md`
+- Icebox EPIC 06: `docs/10-icebox.md` (Backup-Anleitung & Datensicherung)
 
 ---
 

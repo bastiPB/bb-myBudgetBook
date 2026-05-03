@@ -9,11 +9,12 @@ import uuid
 from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import Decimal
+from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.exceptions import ForbiddenError, InvalidSubscriptionStatusError, SubscriptionNotFoundError
+from app.exceptions import ForbiddenError, InvalidFileError, InvalidSubscriptionStatusError, SubscriptionNotFoundError
 from app.models.subscription import BillingInterval, Subscription, SubscriptionPriceHistory, SubscriptionStatus
 from app.schemas.subscription import SubscriptionCreate, SubscriptionUpdate, SuspendPayload
 
@@ -114,6 +115,180 @@ def get_subscription(session: Session, subscription_id: uuid.UUID, user_id: uuid
     sub = _get_subscription_or_raise(session, subscription_id)
     _check_ownership(sub, user_id)
     return sub
+
+
+@dataclass
+class SubscriptionDetailResult:
+    """Zwischenergebnis für den Detail-Endpunkt — kein HTTP, nur Daten."""
+
+    sub: Subscription
+    monthly_cost_normalized: Decimal
+    yearly_cost_normalized: Decimal
+    total_paid_estimate: Decimal
+
+
+def _compute_total_paid_estimate(
+    amount: Decimal,
+    interval: BillingInterval,
+    started_on: date,
+) -> Decimal:
+    """
+    Schätzt den bisher gezahlten Gesamtbetrag seit Abschluss.
+
+    Fallback-Funktion für den Fall dass keine Preishistorie vorhanden ist.
+    Die exakte Berechnung mit echter Preishistorie erledigt _compute_total_paid_exact.
+
+    Warum Monats-Arithmetik statt Tage?
+    Tagesbasiert wäre ungenau (Monatslängen variieren).
+    Monatsbasiert mit ganzzahligem floor ist einfach und intuitiv nachvollziehbar.
+    """
+    today = date.today()
+    if started_on > today:
+        return Decimal("0")
+
+    # Wie viele Monate sind seit started_on vergangen? (abgerundet)
+    months_elapsed = (today.year - started_on.year) * 12 + (today.month - started_on.month)
+
+    # Wie viele volle Abrechnungsperioden stecken in diesen Monaten?
+    months_per_period: dict[BillingInterval, int] = {
+        BillingInterval.monthly:   1,
+        BillingInterval.quarterly: 3,
+        BillingInterval.yearly:    12,
+        BillingInterval.biennial:  24,
+    }
+    # +1: die erste Zahlung am started_on zählt immer, auch wenn noch keine volle
+    # Periode vergangen ist. Ohne +1 würde ein frisch angelegtes Abo 0,00 € zeigen.
+    full_periods = months_elapsed // months_per_period[interval] + 1
+
+    return (amount * Decimal(full_periods)).quantize(Decimal("0.01"))
+
+
+def _compute_total_paid_exact(
+    history: list[SubscriptionPriceHistory],
+    interval: BillingInterval,
+) -> Decimal:
+    """
+    Berechnet den bisherigen Gesamtbetrag exakt anhand der Preishistorie (Slice E).
+
+    Für jedes Preis-Segment (von valid_from bis zum nächsten Eintrag oder heute)
+    werden die vollen Abrechnungsperioden gezählt und mit dem Betrag multipliziert.
+
+    Beispiel (monatlich):
+      {9.99, Jan} → {12.99, März} → {14.99, Mai}
+      Jan–Feb: 2 Monate // 1 = 2 Perioden × 9.99  = 19.98
+      März–Apr: 2 Monate // 1 = 2 Perioden × 12.99 = 25.98
+      Mai: 0 Monate // 1 = 0 Perioden × 14.99 = 0.00  (laufende Periode)
+      Gesamt: 45.96
+
+    Warum Monate statt Tage?
+    Konsistent mit _compute_total_paid_estimate — gleiche Arithmetik, gleiche Intuition.
+    """
+    if not history:
+        return Decimal("0")
+
+    # Aufsteigend nach valid_from sortieren → ältester Eintrag zuerst
+    sorted_history = sorted(history, key=lambda e: e.valid_from)
+    today = date.today()
+
+    months_per_period: dict[BillingInterval, int] = {
+        BillingInterval.monthly:   1,
+        BillingInterval.quarterly: 3,
+        BillingInterval.yearly:    12,
+        BillingInterval.biennial:  24,
+    }
+    period_months = months_per_period[interval]
+
+    total = Decimal("0")
+    for i, entry in enumerate(sorted_history):
+        segment_start = entry.valid_from
+        is_last = (i + 1 >= len(sorted_history))
+        # Ende des Segments: entweder der nächste Preiseintrag oder heute
+        segment_end = sorted_history[i + 1].valid_from if not is_last else today
+
+        if segment_end <= segment_start:
+            continue
+
+        # Monate in diesem Segment (ganzzahlig — Tagesanteil wird ignoriert)
+        months = (
+            (segment_end.year - segment_start.year) * 12
+            + (segment_end.month - segment_start.month)
+        )
+        full_periods = months // period_months
+
+        # Letztes Segment: +1 für die Zahlung die am segment_start (= Startdatum oder
+        # Preisänderungsdatum) bereits stattgefunden hat.
+        # Ohne +1: Abo gestartet am 3.5., heute 4.5. → 0 Monate → 0 Zahlungen (falsch).
+        # Mit +1: 0 Monate + 1 = 1 Zahlung (korrekt — man zahlt beim Abschluss sofort).
+        if is_last:
+            full_periods += 1
+
+        total += entry.amount * Decimal(full_periods)
+
+    return total.quantize(Decimal("0.01"))
+
+
+def get_subscription_detail(
+    session: Session,
+    subscription_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> SubscriptionDetailResult:
+    """
+    Gibt ein Abo mit berechneten Kostenkennzahlen zurück (Slice C/E).
+
+    total_paid_estimate wird ab Slice E exakt via Preishistorie berechnet.
+    Ist keine Historie vorhanden (Altdaten vor v0.2.2), greift der Schätzwert.
+    Wirft SubscriptionNotFoundError wenn das Abo nicht existiert.
+    Wirft ForbiddenError wenn das Abo einem anderen User gehört.
+    """
+    sub = _get_subscription_or_raise(session, subscription_id)
+    _check_ownership(sub, user_id)
+
+    # Monatlichen Normwert berechnen (gleiche Logik wie in get_overview)
+    monthly = sub.amount * _MONTHLY_FACTOR[sub.interval]
+
+    # Preishistorie laden — ab v0.2.2 immer vorhanden (initialer Eintrag in create_subscription)
+    history_stmt = (
+        select(SubscriptionPriceHistory)
+        .where(SubscriptionPriceHistory.subscription_id == subscription_id)
+        .order_by(SubscriptionPriceHistory.valid_from)
+    )
+    history = list(session.execute(history_stmt).scalars().all())
+
+    # Exakte Berechnung wenn Historie vorhanden, sonst Schätzung als Fallback
+    if history:
+        total = _compute_total_paid_exact(history, sub.interval)
+    else:
+        total = _compute_total_paid_estimate(sub.amount, sub.interval, sub.started_on)
+
+    return SubscriptionDetailResult(
+        sub=sub,
+        monthly_cost_normalized=monthly.quantize(Decimal("0.01")),
+        yearly_cost_normalized=(monthly * Decimal("12")).quantize(Decimal("0.01")),
+        total_paid_estimate=total,
+    )
+
+
+def get_price_history(
+    session: Session,
+    subscription_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> list[SubscriptionPriceHistory]:
+    """
+    Gibt die Preishistorie eines Abos zurück, absteigend nach Datum (neueste zuerst).
+
+    Wirft SubscriptionNotFoundError wenn das Abo nicht existiert.
+    Wirft ForbiddenError wenn das Abo einem anderen User gehört.
+    """
+    sub = _get_subscription_or_raise(session, subscription_id)
+    _check_ownership(sub, user_id)
+
+    stmt = (
+        select(SubscriptionPriceHistory)
+        .where(SubscriptionPriceHistory.subscription_id == subscription_id)
+        # Neuester Eintrag zuerst — so erscheint der aktuelle Preis oben in der UI
+        .order_by(SubscriptionPriceHistory.valid_from.desc())
+    )
+    return list(session.execute(stmt).scalars().all())
 
 
 def create_subscription(
@@ -297,6 +472,67 @@ def resume_subscription(
     sub.suspended_at = None
     sub.access_until = None
 
+    session.commit()
+    session.refresh(sub)
+    return sub
+
+
+# Erlaubte Bild-Typen für Logo-Uploads (ADR 0010)
+_ALLOWED_LOGO_TYPES = {"image/jpeg", "image/png", "image/webp"}
+_MAX_LOGO_SIZE_BYTES = 2 * 1024 * 1024  # 2 MB
+# Dateiendung pro Content-Type — UUID-Dateiname verhindert Kollisionen und Path-Traversal
+_LOGO_EXT: dict[str, str] = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+}
+
+
+def upload_subscription_logo(
+    session: Session,
+    subscription_id: uuid.UUID,
+    user_id: uuid.UUID,
+    content_type: str,
+    file_content: bytes,
+    upload_dir: str,
+) -> Subscription:
+    """
+    Speichert ein Logo für ein Abo auf dem Dateisystem (ADR 0010: lokales Dateisystem).
+
+    Validiert Dateityp (JPEG/PNG/WebP) und Größe (max. 2 MB).
+    Löscht das alte Logo wenn vorhanden, schreibt das neue.
+    Speichert den relativen Pfad ("logos/<uuid>.ext") in der DB — nicht die absolute URL.
+    Der relative Pfad ist der entscheidende Entwurfsaspekt aus ADR 0010:
+    bei späterer Migration zu Object Storage ändert sich nur dieser Service-Code.
+    """
+    # Dateityp prüfen — nur bekannte Bild-Formate akzeptieren
+    if content_type not in _ALLOWED_LOGO_TYPES:
+        raise InvalidFileError("Ungültiger Dateityp. Erlaubt: JPEG, PNG, WebP.")
+
+    # Dateigröße prüfen — zu große Bilder würden die Festplatte belasten
+    if len(file_content) > _MAX_LOGO_SIZE_BYTES:
+        raise InvalidFileError("Datei zu groß. Maximum: 2 MB.")
+
+    sub = _get_subscription_or_raise(session, subscription_id)
+    _check_ownership(sub, user_id)
+
+    # Altes Logo löschen wenn vorhanden — Festplatte sauber halten
+    if sub.logo_url:
+        old_file = Path(upload_dir) / sub.logo_url
+        # missing_ok=True: kein Fehler wenn die Datei schon fehlt (z. B. manuell gelöscht)
+        old_file.unlink(missing_ok=True)
+
+    # Neuen Dateinamen mit UUID generieren — verhindert Kollisionen und Path-Traversal-Angriffe.
+    # Niemals den vom Client gelieferten Dateinamen verwenden!
+    ext = _LOGO_EXT[content_type]
+    relative_path = f"logos/{uuid.uuid4()}{ext}"
+    dest = Path(upload_dir) / relative_path
+    # Verzeichnis anlegen falls es noch nicht existiert (z. B. erster Upload überhaupt)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(file_content)
+
+    # Nur den relativen Pfad in der DB speichern (ADR 0010: kein absoluter Pfad, keine URL)
+    sub.logo_url = relative_path
     session.commit()
     session.refresh(sub)
     return sub

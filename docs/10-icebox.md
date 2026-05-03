@@ -284,3 +284,184 @@ Erst wenn das Kontext-Modell entschieden ist, kann dieses Epic konkret werden.
 ## Akzeptanzkriterien (um später zu promoten)
 - Klare Entscheidung: Wie hängen Kontext-Modell und geteilte Module zusammen? (ADR erforderlich)
 - Mindestens ein Modul mit “Gemeinsam”-Funktion vollständig implementiert und getestet
+
+---
+
+# EPIC 06 — Backup-Anleitung & Datensicherung
+
+## Tags
+- target: icebox
+- type: epic
+- area: ops
+- risk: high
+- privacy: high
+- decision: leaning
+- deps: ADR 0010 (lokales Dateisystem für User-Uploads)
+
+## Motivation / Nutzerwert
+Ab v0.2.2 speichert die App Dateien außerhalb der Datenbank (Logos unter `/uploads/`).
+Ein reines `pg_dump` erfasst diese Dateien nicht. Nutzer, die nur die Datenbank sichern,
+verlieren beim Wiederherstellen alle hochgeladenen Logos — ohne Fehlermeldung.
+
+Dieses Epic adressiert das Risiko mit Dokumentation und optional einem einfachen Backup-Skript.
+
+## Optionen (bewusst offen halten)
+
+### Option A — Backup-Anleitung in der Dokumentation
+- Erklärt welche Volumes gesichert werden müssen: PostgreSQL-Daten + `/uploads`-Volume
+- Zeigt ein konkretes Beispiel mit `pg_dump` + `tar` für das Upload-Verzeichnis
+- Low risk, sofort umsetzbar
+
+### Option B — Backup-Skript im Repo
+- Shell-Skript (`scripts/backup.sh`) das `pg_dump` + Upload-Volume-Archiv kombiniert
+- Kann per Cronjob auf dem Server geplant werden
+- Ergebnis: eine einzige `.tar.gz`-Datei pro Tag
+
+### Option C — Backup-Service im docker-compose
+- Zusätzlicher Container (z.B. `offen/docker-volume-backup`) der automatisch sichert
+- Neue externe Abhängigkeit, aber vollständig automatisiert
+
+## Scope (Minimal) — v1 des Epics
+- Mindestens Option A umsetzen (Dokumentation)
+- Option B (Skript) als sinnvolle Erweiterung
+
+## Non-Goals (für v1)
+- Kein Off-Site-Backup (S3, SFTP) — das ist bewusste Eigenverantwortung des Selfhosters
+- Keine Backup-Überwachung / Alerting
+
+## Security & Privacy Notes
+- Backup-Dateien enthalten Finanzdaten und sind hochsensibel
+- Backup-Zielverzeichnis sollte außerhalb des Web-Roots liegen
+- Dokumentation muss Dateiberechtigungen und Verschlüsselungsempfehlung (z.B. `gpg`) erwähnen
+
+## Akzeptanzkriterien (um später zu promoten)
+- Dokumentation erklärt alle zu sichernden Daten vollständig
+- Nutzer kann Backup erstellen und eine leere Instanz daraus wiederherstellen
+- Backup-Anleitung ist Teil der offiziellen Setup-Dokumentation
+
+---
+
+# EPIC 07 — Bank Transactions + Subscription Matching Flow (CSV-first)
+
+## Tags
+- target: icebox
+- type: epic
+- area: integration, core
+- risk: high
+- privacy: high
+- decision: open
+- deps: EPIC 04 (CSV Import), Slice F (`subscription_scheduled_payments`), Modul-Konfiguration pro User
+
+## Motivation / Nutzerwert
+Das Budget Book soll nicht nur Planwerte zeigen, sondern reale Kontobewegungen gegen den Abo-Manager prüfen.
+Dadurch wird sichtbar:
+- wurde ein aktives Abo tatsächlich abgebucht?
+- fehlt eine erwartete Abbuchung?
+- wurde trotz gekündigtem/inaktivem Abo trotzdem gebucht?
+
+## Kontext (Gedanke in einem Satz)
+Soll-Buchungen kommen aus dem Abo-Kontext (planbar), Ist-Buchungen aus CSV-Import (real), und ein Matching verbindet beides nachvollziehbar.
+
+## Datenmodell (Vorschlag, detailliert)
+
+### 1) bank_transactions
+Zweck: persistierte, normalisierte Ist-Buchungen aus CSV-Import.
+
+Pflichtfelder (MVP-nahe):
+- `id` (uuid, pk)
+- `user_id` (uuid, fk -> users.id)
+- `transaction_date` (date, not null)
+- `amount` (numeric(10,2), not null)
+- `currency` (varchar(3), default EUR)
+- `description_raw` (text, not null)
+
+Sinnvolle Zusatzfelder:
+- `booking_date` (date, nullable)
+- `counterparty` (varchar(255), nullable)
+- `iban_masked` (varchar(34), nullable)
+- `reference_raw` (text, nullable)
+- `import_batch_id` (uuid, fk -> import_batches.id)
+- `matched_payment_id` (uuid, fk -> subscription_scheduled_payments.id, nullable)
+- `match_confidence` (numeric(5,2), nullable)
+- `created_at`, `updated_at`
+
+Index-Ideen:
+- `(user_id, transaction_date)`
+- `(user_id, amount)`
+- `(matched_payment_id)`
+
+Privacy-Hinweis:
+- nur nötige Rohdaten speichern
+- keine CSV-Datei als Dateiobjekt dauerhaft halten
+- sensible Felder ggf. maskieren/reduzieren
+
+### 2) subscription_scheduled_payments (Abhängigkeit aus Slice F)
+Zweck: Soll-Buchungen zum Stichtag, robust und idempotent erzeugt.
+
+Wesentliche Felder:
+- `id` (uuid, pk)
+- `subscription_id` (uuid, fk)
+- `user_id` (uuid, fk)
+- `due_date` (date, not null)
+- `expected_amount` (numeric(10,2), not null)
+- `currency` (varchar(3), default EUR)
+- `status` (zunächst: `pending | matched | missed`)
+- `bank_transaction_id` (uuid, fk -> bank_transactions.id, nullable)
+- `matched_at` (timestamptz, nullable)
+- `created_at`, `updated_at`
+
+Harte Doppelbuchungsbremse:
+- eindeutiger Constraint auf `(subscription_id, due_date)`
+- Scheduler und manueller Trigger müssen per upsert/no-op arbeiten
+
+## Matching-Flow (CSV-first)
+
+1. CSV importieren und in `bank_transactions` normalisieren.
+2. Offene Soll-Buchungen (`status = pending`) für den User laden.
+3. Kandidaten je Soll-Buchung suchen:
+- Betrag exakt oder in enger Toleranz
+- Datum innerhalb definierter Fensterlogik
+- Text-Hinweise (`name`/Provider vs. `description_raw`)
+4. Bei eindeutigem Treffer:
+- Soll-Buchung auf `matched`
+- Verknüpfung in beide Richtungen setzen
+5. Bei ausbleibendem Treffer nach Frist:
+- Soll-Buchung auf `missed`
+6. Sonderfall: Treffer für Abo mit Status `canceled` oder `suspended`:
+- als Warnfall markieren (später eigenes Event/Status möglich)
+
+## Notification-Idee (Warnfall)
+Vorschlagstext für später:
+"Unerwartete Abbuchung erkannt: Für dein inaktives Abo wurde eine Kontobewegung gefunden. Bitte prüfe, ob das Abo noch aktiv ist oder ob die Buchung ignoriert werden soll."
+
+## Konfigurationsgedanke pro User (Modul-Ebene)
+Für Abo-Manager sollen kombinierbar sein:
+- `subscription_cumulative_calculation` (an/aus)
+- `subscription_booking_history` (an/aus)
+Beide können gleichzeitig aktiv sein.
+
+Namensregel (verbindlich):
+- Modul-spezifische JSONB-Flags bekommen immer ein Modul-Prefix (`<modul>_<feature_flag>`)
+- Hintergrund: verhindert Key-Kollisionen zwischen Modulen in derselben `config`-Struktur
+
+Implikation fuer UI/Backend:
+- Profile Settings des Users muessen die namespaceten Keys explizit anbieten und persistieren
+- Service-Validierung soll nur bekannte Keys pro Modul akzeptieren (Whitelist statt freier String-Keys)
+
+## Offene Architekturfragen (bewusst notiert)
+- Wie streng ist Betrag-/Datums-Toleranz im ersten Wurf?
+- Ab wann gilt eine Soll-Buchung als `missed` (z. B. +3/+5/+7 Tage)?
+- Braucht es früh ein manuelles Rematching im UI?
+- Wie gehen wir mit Sammelbuchungen um (ein Betrag für mehrere Services)?
+
+## Originalfragen als Gedächtnisspeicher (bewusst persönlich)
+- "Welche Komponente sorgt dafür, dass zum Abrechnungsstichtag auch wirklich ein Wert geschrieben wird?"
+- "Was passiert, wenn CSVs zeitlich verspätet importiert werden?"
+- "Welchen Status zeigen wir, wenn noch keine Kontobuchung gefunden wurde?"
+- "Wie reagieren wir, wenn trotz inaktivem/gekündigtem Abo eine echte Buchung eingeht?"
+
+## Akzeptanzkriterien (um später zu promoten)
+- Datenmodell für `bank_transactions` ist per ADR oder Schema-Skizze festgelegt
+- Matching-Status und Fristen sind fachlich entschieden
+- Privacy-Entscheidung ist dokumentiert (Speicherdauer, Maskierung, Logging)
+- End-to-End Testfall ist beschreibbar: CSV rein -> Match/No-Match -> nachvollziehbarer Status

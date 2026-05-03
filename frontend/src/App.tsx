@@ -17,6 +17,7 @@ import PlaceholderPage from './pages/PlaceholderPage'
 import ProfileSettingsPage from './pages/ProfileSettingsPage'
 import RegisterPage from './pages/RegisterPage'
 import SettingsPage from './pages/SettingsPage'
+import SubscriptionDetailPage from './pages/SubscriptionDetailPage'
 import SubscriptionsPage from './pages/SubscriptionsPage'
 
 // Hilfsfunktion: kombiniert Zugriffsschutz + App-Shell für normale User-Seiten.
@@ -59,6 +60,9 @@ function App() {
 
       {/* Profil-Einstellungen — für jeden eingeloggten User */}
       <Route path="/profile/settings" element={<Layout><ProfileSettingsPage /></Layout>} />
+
+      {/* Abo-Detailseite — statische Route, damit :id nicht durch den Modul-Router läuft */}
+      <Route path="/subscriptions/:id" element={<Layout><SubscriptionDetailPage /></Layout>} />
 
       {/* Dynamische Modul-Routen — nur aktive Module sind erreichbar (ADR 0008).
           Inaktive Module haben keine Route → URL-Aufruf landet beim Fallback (Login). */}

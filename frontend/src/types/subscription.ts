@@ -49,6 +49,19 @@ export interface SubscriptionRead {
   access_until: string | null
 }
 
+// Detailansicht — SubscriptionRead + berechnete Kostenkennzahlen (Slice C)
+export interface SubscriptionDetail extends SubscriptionRead {
+  monthly_cost_normalized: string   // Betrag auf Monatsbasis (Decimal als String)
+  yearly_cost_normalized: string    // monthly × 12
+  total_paid_estimate: string       // Schätzung bisheriger Gesamtkosten
+}
+
+// Datum von ISO-Format ("2026-05-03") in deutsches Format ("03.05.2026") umwandeln
+export function formatDate(isoDate: string): string {
+  const [year, month, day] = isoDate.split('-')
+  return `${day}.${month}.${year}`
+}
+
 export interface SubscriptionCreate {
   name: string
   amount: number
@@ -73,4 +86,12 @@ export interface SuspendPayload {
 export interface OverviewRead {
   monthly_total: string   // auf Monatsbasis normiert
   upcoming: SubscriptionRead[]
+}
+
+// Preishistorie-Eintrag (Slice E): "ab valid_from gilt amount"
+export interface PriceHistoryEntry {
+  id: string
+  subscription_id: string
+  amount: string       // Decimal als String, z. B. "9.99"
+  valid_from: string   // ISO-Datum "YYYY-MM-DD"
 }
