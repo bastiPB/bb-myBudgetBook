@@ -74,6 +74,14 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["subscription_id"], ["subscriptions.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
     )
+    # Index auf subscription_id anlegen — PostgreSQL erstellt FK-Indizes NICHT automatisch.
+    # Ohne Index: bei "Zeig mir alle Preiseinträge für Abo X" wird die ganze Tabelle gescannt.
+    # Entspricht index=True im SubscriptionPriceHistory-Modell.
+    op.create_index(
+        "ix_subscription_price_history_subscription_id",
+        "subscription_price_history",
+        ["subscription_id"],
+    )
 
 
 def downgrade() -> None:
@@ -82,7 +90,8 @@ def downgrade() -> None:
     Diese Funktion wird ausgeführt wenn: alembic downgrade -1
     """
 
-    # Reihenfolge: abhängige Tabelle zuerst löschen, dann Spalten, dann Enum-Typ
+    # Reihenfolge: Index und abhängige Tabelle zuerst löschen, dann Spalten, dann Enum-Typ
+    op.drop_index("ix_subscription_price_history_subscription_id", table_name="subscription_price_history")
     op.drop_table("subscription_price_history")
     op.drop_column("subscriptions", "access_until")
     op.drop_column("subscriptions", "suspended_at")

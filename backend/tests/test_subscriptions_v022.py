@@ -100,6 +100,25 @@ class TestSubscriptionCreateSchema:
         # Pydantic wirft ValidationError — wir prüfen nur dass es einen Fehler gab
         assert "Abschlussdatum" in str(exc_info.value)
 
+    def test_started_on_zukunft_als_string_wirft_fehler(self) -> None:
+        """
+        started_on als ISO-String in der Zukunft muss ebenfalls abgelehnt werden.
+
+        Warum dieser Test?
+        JSON liefert Datumsfelder immer als String ("2099-01-01"), nicht als date-Objekt.
+        Der Validator läuft mit mode='before', also bevor Pydantic coerced.
+        Würde er nur isinstance(v, date) prüfen, käme ein String ungeprüft durch —
+        Pydantic würde ihn still zu date coercen und ein Zukunftsdatum akzeptieren.
+        """
+        with pytest.raises(Exception) as exc_info:
+            SubscriptionCreate(
+                name="Test",
+                amount=Decimal("9.99"),
+                next_due_date=date.today() + timedelta(days=30),
+                started_on="2099-01-01",  # ISO-String wie er aus JSON käme
+            )
+        assert "Abschlussdatum" in str(exc_info.value)
+
     def test_started_on_optional_kein_pflichtfeld(self) -> None:
         """Ohne started_on soll das Schema trotzdem gültig sein."""
         payload = SubscriptionCreate(

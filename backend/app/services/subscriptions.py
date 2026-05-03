@@ -143,22 +143,57 @@ def create_subscription(
         # status, logo_url, suspended_at, access_until — SQLAlchemy-Defaults greifen
     )
     session.add(sub)
+    session.flush()  # flush statt commit: sub.id ist jetzt verfügbar, Transaktion noch offen
+
+    # Initialen Preis sofort in die Preishistorie schreiben.
+    #
+    # Warum hier und nicht erst beim ersten update?
+    # Ohne diesen Eintrag ist der Startpreis nach der ersten Preisänderung unwiederbringlich verloren:
+    #   Anlage:    9,99 € — kein Eintrag in history → nach Änderung auf 12,99 € unbekannt
+    #   1. Änderung → {12,99, März}
+    #   2. Änderung → {14,99, Mai}
+    # History: [{12.99, März}, {14.99, Mai}] — Jan–Feb fehlen komplett
+    #
+    # Mit diesem Fix:
+    # History: [{9.99, started_on}, {12.99, März}, {14.99, Mai}] → lückenlose Zeitleiste
+    # valid_from = started_on (nicht heute) damit rückwirkende Abos korrekt erfasst werden.
+    _record_price_change(session, sub, sub.amount, valid_from=started_on)
+
     session.commit()
     session.refresh(sub)
     return sub
 
 
-def _record_price_change(session: Session, sub: Subscription, new_amount: Decimal) -> None:
+def _record_price_change(
+    session: Session,
+    sub: Subscription,
+    new_amount: Decimal,
+    valid_from: date | None = None,
+) -> None:
     """
-    Schreibt einen Preishistorie-Eintrag wenn sich amount ändert.
+    Schreibt einen Preishistorie-Eintrag.
 
-    Wird still von update_subscription gerufen — kein API-Endpoint in v0.2.2.
-    valid_from = heute (Datum der Änderung).
+    Wird von zwei Stellen gerufen:
+    - create_subscription: initialer Eintrag mit valid_from = started_on
+    - update_subscription: Änderungseintrag mit valid_from = heute (Standard)
+
+    Warum valid_from als Parameter?
+    Beim Anlegen eines Abos soll der Startpreis ab dem Abschlussdatum (started_on) gelten,
+    nicht ab dem heutigen Tag — sonst klafft eine Lücke in der Zeitleiste für rückwirkende Abos.
+
+    Semantik der Tabelle (valid_from-only-Design):
+    Jeder Eintrag bedeutet „ab diesem Datum gilt Preis X".
+    Aufeinanderfolgende Einträge bilden eine lückenlose Zeitleiste:
+      {9.99, 2026-01-01} → {12.99, 2026-03-01} → {14.99, 2026-05-01}
+    Slice E kann daraus den kumulierten Betrag korrekt berechnen.
+
+    Kein API-Endpoint in v0.2.2 — die Daten laufen still mit.
     """
     entry = SubscriptionPriceHistory(
         subscription_id=sub.id,
         amount=new_amount,
-        valid_from=date.today(),
+        # Explizites Datum wenn übergeben (Abschluss), sonst heute (Änderung)
+        valid_from=valid_from if valid_from is not None else date.today(),
     )
     session.add(entry)
 
@@ -172,30 +207,31 @@ def update_subscription(
     """
     Aktualisiert ein bestehendes Abo.
 
-    Nur Felder die im payload mitgeschickt wurden (nicht None) werden geändert.
+    Nur Felder die im Request-Body standen (payload.model_fields_set) werden geändert.
     Wenn sich amount ändert, wird ein Eintrag in subscription_price_history geschrieben.
+    notes kann damit auch explizit auf null gesetzt werden ({ "notes": null }).
     Wirft SubscriptionNotFoundError wenn das Abo nicht existiert.
     Wirft ForbiddenError wenn das Abo einem anderen User gehört.
     """
     sub = _get_subscription_or_raise(session, subscription_id)
     _check_ownership(sub, user_id)
 
-    # Wenn amount sich ändert: alten Preis in der Historie festhalten, bevor er überschrieben wird.
+    # Wenn amount sich ändert: neuen Preis ab heute in der Preishistorie festhalten.
+    # Semantik: jeder Eintrag sagt "ab valid_from gilt Preis X" — so entsteht eine Zeitleiste.
     # Wir prüfen: payload.amount ist gesetzt UND unterscheidet sich vom aktuellen Wert.
     if payload.amount is not None and payload.amount != sub.amount:
         _record_price_change(session, sub, payload.amount)
 
-    # Nur die Felder aktualisieren, die der User tatsächlich mitgeschickt hat
-    if payload.name is not None:
-        sub.name = payload.name
-    if payload.amount is not None:
-        sub.amount = payload.amount
-    if payload.next_due_date is not None:
-        sub.next_due_date = payload.next_due_date
-    if payload.interval is not None:
-        sub.interval = payload.interval
-    if payload.notes is not None:
-        sub.notes = payload.notes
+    # Nur die Felder aktualisieren, die der User tatsächlich mitgeschickt hat.
+    #
+    # Warum model_fields_set statt "if payload.x is not None"?
+    # Bei Optional-Feldern bedeutet None zweierlei:
+    #   - "nicht mitgeschickt" (Feld fehlt im JSON)  → soll nichts ändern
+    #   - "explizit null"       ({ "notes": null })   → soll Feld leeren
+    # model_fields_set enthält nur die Felder, die im Request-Body standen.
+    # Damit kann man "nicht gesendet" und "auf null setzen" sauber unterscheiden.
+    for field in payload.model_fields_set:
+        setattr(sub, field, getattr(payload, field))
 
     session.commit()
     session.refresh(sub)

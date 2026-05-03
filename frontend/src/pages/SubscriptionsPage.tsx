@@ -82,6 +82,14 @@ export default function SubscriptionsPage() {
   // Welche Abos sollen auf der aktuellen Seite angezeigt werden?
   const paginated = filtered.slice(currentPage * pageSize, (currentPage + 1) * pageSize)
 
+  // currentPage nach oben begrenzen wenn Einträge wegfallen (Delete/Suspend/Resume/Suche).
+  // Beispiel: Seite 3 von 3, letzter Eintrag wird gelöscht → totalPages wird 2,
+  // aber currentPage bleibt 2 → paginated ist leer obwohl filtered.length > 0.
+  // Math.max(..., 0) verhindert -1 wenn filtered komplett leer ist.
+  useEffect(() => {
+    setCurrentPage(p => Math.min(p, Math.max(totalPages - 1, 0)))
+  }, [filtered.length, pageSize])
+
   // Bei Änderung der Suche: zurück auf Seite 1 damit alte Ergebnisse nicht weiter blättern
   function handleSearchChange(q: string) {
     setSearchQuery(q)
@@ -127,7 +135,8 @@ export default function SubscriptionsPage() {
   // --- Bearbeiten starten: Formular mit aktuellen Werten befüllen ---
   function startEdit(sub: SubscriptionRead) {
     setEditingId(sub.id)
-    setEditForm({ name: sub.name, amount: sub.amount, next_due_date: sub.next_due_date, interval: sub.interval })
+    // formatAmount: "9.99" (API) → "9,99" (deutsches Format) — konsistent mit allen anderen Anzeigen
+    setEditForm({ name: sub.name, amount: formatAmount(sub.amount), next_due_date: sub.next_due_date, interval: sub.interval })
     setEditError(null)
   }
 
@@ -295,7 +304,7 @@ export default function SubscriptionsPage() {
       {subscriptions.length === 0 ? (
         <p className="subs-empty">Noch keine Abos eingetragen.</p>
       ) : filtered.length === 0 ? (
-        <p className="subs-empty">Keine Abos gefunden für „{searchQuery}".</p>
+        <p className="subs-empty">Keine Abos gefunden für "{searchQuery}".</p>
       ) : (
         <>
           <div className="subs-table-card">

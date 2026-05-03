@@ -140,6 +140,29 @@ Hinweis Preis-Historie (Tabelle schon in Slice A, API/UI erst Slice E):
 - kein API-Endpoint, kein UI in v0.2.2
 - Grund: Daten muessen ab Tag 1 laufen, sonst ist die Historie von Anfang an lueckenhaft
 
+Implementierungsentscheidung price_history (Erkenntnisse aus Slice A):
+
+Semantik (valid_from-only-Design):
+Jeder Eintrag bedeutet "ab diesem Datum gilt Preis X".
+Aufeinanderfolgende Eintraege bilden eine lueckenlose Zeitleiste:
+  {9.99, started_on} → {12.99, 2026-03-01} → {14.99, 2026-05-01}
+Slice E kann daraus total_paid_estimate korrekt berechnen.
+
+Initialer Eintrag in create_subscription (Fix):
+Urspruenglicher Plan: nur bei amount-Aenderung schreiben.
+Problem: ohne initialen Eintrag ist der Startpreis nach der ersten Aenderung verloren.
+Beispiel ohne Fix:
+  Anlage 9,99 € → kein Eintrag
+  Aenderung auf 12,99 € → {12.99, Maerz}
+  Aenderung auf 14,99 € → {14.99, Mai}
+  History: [{12.99, Maerz}, {14.99, Mai}] — Jan/Feb komplett unbekannt
+Fix: create_subscription schreibt sofort {amount, valid_from=started_on}.
+Warum started_on statt heute? Damit rueckwirkende Abos korrekt erfasst werden.
+
+_record_price_change erhaelt daher ein optionales valid_from-Argument:
+- create_subscription: valid_from = started_on
+- update_subscription: valid_from = date.today() (Standard)
+
 ---
 
 ## 6) API-Delta (Vorschlag)
