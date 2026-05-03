@@ -14,7 +14,7 @@ Das ist schnell und läuft auch ohne Docker.
 import uuid
 from datetime import date, timedelta
 from decimal import Decimal
-from unittest.mock import MagicMock, call
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -32,13 +32,14 @@ from app.services.subscriptions import (
 
 def make_active_subscription(user_id: uuid.UUID | None = None) -> Subscription:
     """Erstellt ein Subscription-Objekt mit Status 'active' für Tests."""
-    sub = Subscription.__new__(Subscription)  # ohne __init__ — vermeidet DB-Aufruf
-    sub.id = uuid.uuid4()
-    sub.user_id = user_id or uuid.uuid4()
-    sub.name = "Test-Abo"
-    sub.amount = Decimal("9.99")
-    sub.next_due_date = date.today() + timedelta(days=30)
-    sub.interval = "monthly"
+    # Normale Instanz statt __new__: SQLAlchemy setzt so den internen ORM-State korrekt.
+    sub = Subscription(
+        user_id=user_id or uuid.uuid4(),
+        name="Test-Abo",
+        amount=Decimal("9.99"),
+        next_due_date=date.today() + timedelta(days=30),
+        interval="monthly",
+    )
     sub.status = SubscriptionStatus.active
     sub.started_on = date.today()
     sub.notes = None
@@ -159,8 +160,8 @@ class TestCreateSubscription:
 
         # Das Abo wurde zur Session hinzugefügt
         assert session.add.called
-        # Das erste add()-Argument ist das Subscription-Objekt
-        added_sub = session.add.call_args[0][0]
+        # create_subscription ruft session.add zweimal auf: zuerst Subscription, dann PriceHistory.
+        added_sub = session.add.call_args_list[0][0][0]
         assert isinstance(added_sub, Subscription)
         assert added_sub.started_on == date.today()
 
@@ -179,7 +180,8 @@ class TestCreateSubscription:
 
         create_subscription(session, user_id, payload)
 
-        added_sub = session.add.call_args[0][0]
+        # create_subscription ruft session.add zweimal auf: zuerst Subscription, dann PriceHistory.
+        added_sub = session.add.call_args_list[0][0][0]
         assert added_sub.started_on == past
 
 
