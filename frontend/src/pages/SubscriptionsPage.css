@@ -1,0 +1,292 @@
+/* SubscriptionsPage.css — Styling für die Abo-Verwaltung.
+   Alle Farben über CSS-Variablen aus AppLayout.css. */
+
+/* ── Seitenheader: Titel + Button ── */
+.subs-page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.subs-count {
+  font-size: 14px;
+  color: var(--color-text-muted);
+  margin: 0 0 24px;
+}
+
+/* ── Sekundärer Outline-Button (Abbrechen, Bearbeiten) ── */
+.btn-outline {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 16px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 14px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.btn-outline:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  background: var(--color-accent-light);
+}
+
+/* Kleiner Outline-Button für Tabellenzeilen */
+.btn-outline-sm {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.btn-outline-sm:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  background: var(--color-accent-light);
+}
+
+/* ── Roter Danger-Button ── */
+.btn-danger {
+  padding: 5px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  border-radius: 6px;
+  border: 1px solid #c0392b;
+  background: transparent;
+  color: #c0392b;
+  cursor: pointer;
+  font-weight: 500;
+  transition: background 0.15s, color 0.15s;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #c0392b;
+  color: #fff;
+}
+
+[data-theme="dark"] .btn-danger {
+  border-color: #e07070;
+  color: #e07070;
+}
+
+[data-theme="dark"] .btn-danger:hover:not(:disabled) {
+  background: #e07070;
+  color: #1a0a0a;
+}
+
+.btn-danger:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ── Formular "Neues Abo anlegen" ── */
+.subs-create-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: 24px 28px;
+  margin-bottom: 24px;
+}
+
+.subs-create-card h2 {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text);
+  margin: 0 0 16px;
+}
+
+.subs-input-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+/* Inputs und Selects im Formular */
+.subs-input,
+.subs-select {
+  padding: 8px 12px;
+  font-size: 14px;
+  font-family: inherit;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.subs-input:focus,
+.subs-select:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-light);
+}
+
+.subs-input       { flex: 2; min-width: 140px; }
+.subs-input-sm    { flex: 1; min-width: 110px; }
+.subs-select      { flex: 1; min-width: 120px; }
+
+.subs-form-error {
+  font-size: 13px;
+  color: #b94040;
+  background: #fdf0ee;
+  border: 1px solid #f5c6c0;
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin: 0 0 12px;
+}
+
+[data-theme="dark"] .subs-form-error {
+  color: #e89090;
+  background: #2a1a1a;
+  border-color: #5c2828;
+}
+
+/* ── Abo-Tabelle ── */
+.subs-table-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.subs-table {
+  width: 100%;
+  border-collapse: collapse;
+  /* Feste Layout-Berechnung: Spaltenbreiten werden einmalig anhand der <th> gesetzt
+     und ändern sich nicht wenn eine Zeile den Edit-Modus (colSpan) aktiviert. */
+  table-layout: fixed;
+}
+
+/* Explizite Spaltenbreiten — nur bei table-layout: fixed wirksam */
+.subs-table th:nth-child(1) { width: 30%; } /* Name */
+.subs-table th:nth-child(2) { width: 12%; } /* Betrag */
+.subs-table th:nth-child(3) { width: 15%; } /* Intervall */
+.subs-table th:nth-child(4) { width: 18%; } /* Fälligkeit */
+.subs-table th:nth-child(5) { width: 25%; } /* Aktionen */
+
+
+.subs-table th {
+  padding: 11px 16px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-sidebar);
+}
+
+.subs-table td {
+  padding: 12px 16px;
+  font-size: 14px;
+  color: var(--color-text);
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: middle;
+}
+
+.subs-table tr:last-child td {
+  border-bottom: none;
+}
+
+.subs-table tbody tr {
+  transition: background 0.1s;
+}
+
+.subs-table tbody tr:hover {
+  background: var(--color-accent-light);
+}
+
+/* Zeile die gerade bearbeitet wird */
+.subs-table tbody tr.is-editing {
+  background: var(--color-accent-light);
+}
+
+.subs-table tbody tr.is-editing:hover {
+  background: var(--color-accent-light);
+}
+
+/* Intervall-Text etwas gedämpft */
+.subs-interval {
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+/* Aktions-Buttons in der Tabelle nebeneinander */
+.subs-action-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Edit-Formular innerhalb der Tabelle */
+.subs-edit-form {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+/* kleiner Primärbutton für "Speichern" in der Zeile */
+.btn-primary-sm {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--color-accent);
+  background: var(--color-accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.btn-primary-sm:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+  border-color: var(--color-accent-hover);
+}
+
+.btn-primary-sm:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.subs-edit-error {
+  font-size: 12px;
+  color: #c0392b;
+}
+
+[data-theme="dark"] .subs-edit-error {
+  color: #e07070;
+}
+
+/* Leer-Zustand und Ladefehler */
+.subs-empty {
+  color: var(--color-text-muted);
+  font-size: 14px;
+  padding: 24px 0;
+  text-align: center;
+}
+
+.subs-load-error {
+  font-size: 14px;
+  color: #b94040;
+  padding: 32px;
+}

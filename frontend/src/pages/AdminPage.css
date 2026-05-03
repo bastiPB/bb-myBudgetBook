@@ -1,0 +1,318 @@
+/* AdminPage.css — Styling für die User-Verwaltung.
+   Alle Farben über CSS-Variablen aus AppLayout.css — kein Hardcoding. */
+
+/* ── Seitenheader: Titel + Aktion-Button nebeneinander ── */
+.admin-page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+/* Sekundärer Outline-Button (z. B. "Abbrechen") */
+.btn-outline {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 16px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 14px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.btn-outline:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  background: var(--color-accent-light);
+}
+
+/* Anzahl der registrierten User unter dem Titel */
+.admin-count {
+  font-size: 14px;
+  color: var(--color-text-muted);
+  margin: 0 0 24px;
+}
+
+/* ── Formular "Neuen User anlegen" ── */
+.admin-create-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: 24px 28px;
+  margin-bottom: 24px;
+}
+
+.admin-create-card h2 {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text);
+  margin: 0 0 6px;
+}
+
+.admin-create-card p {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  margin: 0 0 16px;
+}
+
+/* Horizontal angeordnete Eingabefelder */
+.admin-input-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+/* Inputs und Selects im Formular */
+.admin-input,
+.admin-select {
+  padding: 8px 12px;
+  font-size: 14px;
+  font-family: inherit;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.admin-input:focus,
+.admin-select:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-light);
+}
+
+.admin-input { flex: 2; min-width: 160px; }
+.admin-select { flex: 1; min-width: 120px; }
+
+/* Fehlermeldung im Create-Formular */
+.admin-form-error {
+  font-size: 13px;
+  color: #b94040;
+  background: #fdf0ee;
+  border: 1px solid #f5c6c0;
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin: 0 0 12px;
+}
+
+[data-theme="dark"] .admin-form-error {
+  color: #e89090;
+  background: #2a1a1a;
+  border-color: #5c2828;
+}
+
+/* ── User-Tabelle ── */
+.admin-table-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  overflow: hidden; /* rundet auch die Tabellen-Ecken ab */
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.admin-table th {
+  padding: 11px 16px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-sidebar);
+}
+
+.admin-table td {
+  padding: 12px 16px;
+  font-size: 14px;
+  color: var(--color-text);
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: middle;
+}
+
+/* Letzte Zeile: kein unterer Rahmen */
+.admin-table tr:last-child td {
+  border-bottom: none;
+}
+
+/* Hover-Effekt auf Zeilen */
+.admin-table tbody tr {
+  transition: background 0.1s;
+}
+
+.admin-table tbody tr:hover {
+  background: var(--color-accent-light);
+}
+
+/* Eigene Zeile leicht hervorgehoben */
+.admin-table tbody tr.is-self {
+  background: var(--color-accent-light);
+}
+
+/* "(du)"-Markierung neben der eigenen E-Mail */
+.self-badge {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  margin-left: 6px;
+}
+
+/* ── Status-Badges ── */
+.badge {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* Aktiv — gedämpftes Grün */
+.badge--active {
+  background: #dcf0e3;
+  color: #1d6535;
+}
+
+[data-theme="dark"] .badge--active {
+  background: #162d1f;
+  color: #6dba8a;
+}
+
+/* Ausstehend — gedämpftes Amber */
+.badge--pending {
+  background: #fef3cd;
+  color: #7d5a00;
+}
+
+[data-theme="dark"] .badge--pending {
+  background: #2a2110;
+  color: #c9a83c;
+}
+
+/* ── Rollen-Dropdown in der Tabelle ── */
+.role-select {
+  padding: 5px 8px;
+  font-size: 13px;
+  font-family: inherit;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.role-select:focus {
+  border-color: var(--color-accent);
+}
+
+.role-select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Aktions-Buttons in der Tabelle ── */
+.btn-approve {
+  padding: 5px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  border-radius: 6px;
+  border: 1px solid #2d8a50;
+  background: transparent;
+  color: #2d8a50;
+  cursor: pointer;
+  font-weight: 500;
+  transition: background 0.15s, color 0.15s;
+}
+
+.btn-approve:hover:not(:disabled) {
+  background: #2d8a50;
+  color: #fff;
+}
+
+[data-theme="dark"] .btn-approve {
+  border-color: #4daa70;
+  color: #4daa70;
+}
+
+[data-theme="dark"] .btn-approve:hover:not(:disabled) {
+  background: #4daa70;
+  color: #0d1a12;
+}
+
+.btn-danger {
+  padding: 5px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  border-radius: 6px;
+  border: 1px solid #c0392b;
+  background: transparent;
+  color: #c0392b;
+  cursor: pointer;
+  font-weight: 500;
+  transition: background 0.15s, color 0.15s;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #c0392b;
+  color: #fff;
+}
+
+[data-theme="dark"] .btn-danger {
+  border-color: #e07070;
+  color: #e07070;
+}
+
+[data-theme="dark"] .btn-danger:hover:not(:disabled) {
+  background: #e07070;
+  color: #1a0a0a;
+}
+
+.btn-approve:disabled,
+.btn-danger:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Aktions-Buttons nebeneinander */
+.action-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Fehlermeldung pro Zeile */
+.row-error {
+  font-size: 12px;
+  color: #c0392b;
+}
+
+[data-theme="dark"] .row-error {
+  color: #e07070;
+}
+
+/* Leer-Zustand */
+.admin-empty {
+  color: var(--color-text-muted);
+  font-size: 14px;
+  padding: 24px 0;
+  text-align: center;
+}
+
+/* Lade-Fehler */
+.admin-load-error {
+  font-size: 14px;
+  color: #b94040;
+  padding: 32px;
+}

@@ -5,8 +5,29 @@
 //   async/await = auf das Backend warten ohne die Seite einzufrieren
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+
 import { loginUser } from '../api/auth'
 import { useAuth } from '../context/useAuth'
+import './LoginPage.css'
+
+// SVG-Logo — identisch zu AppLayout, damit der Wiedererkennungswert stimmt
+function LogoIcon() {
+  return (
+    <svg width="32" height="32" viewBox="0 0 26 26" fill="none" aria-hidden="true">
+      <rect width="26" height="26" rx="6" fill="var(--color-accent)" />
+      <text
+        x="3"
+        y="19"
+        fontFamily="system-ui, sans-serif"
+        fontWeight="800"
+        fontSize="14"
+        fill="white"
+      >
+        BB
+      </text>
+    </svg>
+  )
+}
 
 export default function LoginPage() {
   // Formular-Felder: jedes Feld hat seinen eigenen State
@@ -39,6 +60,13 @@ export default function LoginPage() {
   })
   const [goodbyeCountdown, setGoodbyeCountdown] = useState(3)
 
+  // Theme aus localStorage anwenden — damit die Login-Seite das gespeicherte Theme zeigt,
+  // auch wenn AppLayout (das sonst data-theme setzt) hier nicht gerendert wird.
+  useEffect(() => {
+    const savedTheme = localStorage.getItem('bb-theme') ?? 'light'
+    document.documentElement.setAttribute('data-theme', savedTheme)
+  }, [])
+
   // Wenn der User bereits eingeloggt ist: Countdown starten, dann zum Dashboard
   useEffect(() => {
     if (!user) return
@@ -51,7 +79,6 @@ export default function LoginPage() {
   }, [user, loginCountdown, navigate])
 
   // Abmelde-Bestätigung: Countdown läuft bis 0, dann zeigt die Bedingung im JSX das Formular
-  // Kein setState im Effect-Body — nur setTimeout (asynchron, Lint-konform)
   useEffect(() => {
     if (!showGoodbye || goodbyeCountdown === 0) return
     const timer = setTimeout(() => setGoodbyeCountdown(prev => prev - 1), 1000)
@@ -65,9 +92,9 @@ export default function LoginPage() {
     setLoading(true)
 
     try {
-      const user = await loginUser(email, password)
+      const loggedInUser = await loginUser(email, password)
       // User im globalen Context speichern — alle anderen Komponenten kennen ihn jetzt
-      setUser(user)
+      setUser(loggedInUser)
       navigate('/dashboard')
     } catch (err) {
       // Fehlermeldung aus dem Backend anzeigen (z.B. "E-Mail oder Passwort ist falsch.")
@@ -81,17 +108,20 @@ export default function LoginPage() {
   // Bereits eingeloggt → Hinweisscreen mit Countdown anzeigen
   if (user) {
     return (
-      <div style={{ maxWidth: 400, margin: '80px auto', padding: '0 16px', textAlign: 'center' }}>
-        <h2>Du bist bereits eingeloggt.</h2>
-        <p style={{ color: '#666', marginTop: 8 }}>
-          Du wirst in {loginCountdown} Sekunde{loginCountdown !== 1 ? 'n' : ''} zum Dashboard weitergeleitet…
-        </p>
-        <button
-          onClick={() => navigate('/dashboard')}
-          style={{ marginTop: 24, padding: '10px 24px' }}
-        >
-          Jetzt zum Dashboard
-        </button>
+      <div className="login-page">
+        <div className="login-info-card">
+          <h2>Du bist bereits eingeloggt.</h2>
+          <p>
+            Du wirst in {loginCountdown} Sekunde{loginCountdown !== 1 ? 'n' : ''} zum
+            Dashboard weitergeleitet…
+          </p>
+          <button
+            className="login-btn-secondary"
+            onClick={() => navigate('/dashboard')}
+          >
+            Jetzt zum Dashboard
+          </button>
+        </div>
       </div>
     )
   }
@@ -99,76 +129,91 @@ export default function LoginPage() {
   // Gerade abgemeldet → kurze Bestätigung solange Countdown > 0, dann das Formular
   if (showGoodbye && goodbyeCountdown > 0) {
     return (
-      <div style={{ maxWidth: 400, margin: '80px auto', padding: '0 16px', textAlign: 'center' }}>
-        <h2>Du hast dich erfolgreich abgemeldet.</h2>
-        <p style={{ color: '#666', marginTop: 8 }}>
-          Das Anmeldeformular erscheint in {goodbyeCountdown} Sekunde{goodbyeCountdown !== 1 ? 'n' : ''}…
-        </p>
-        <button
-          onClick={() => setGoodbyeCountdown(0)}
-          style={{ marginTop: 24, padding: '10px 24px' }}
-        >
-          Jetzt anmelden
-        </button>
+      <div className="login-page">
+        <div className="login-info-card">
+          <h2>Du hast dich erfolgreich abgemeldet.</h2>
+          <p>
+            Das Anmeldeformular erscheint in {goodbyeCountdown}{' '}
+            Sekunde{goodbyeCountdown !== 1 ? 'n' : ''}…
+          </p>
+          <button
+            className="login-btn-secondary"
+            onClick={() => setGoodbyeCountdown(0)}
+          >
+            Jetzt anmelden
+          </button>
+        </div>
       </div>
     )
   }
 
   return (
-    <div style={{ maxWidth: 400, margin: '80px auto', padding: '0 16px' }}>
-      <h1 style={{ marginBottom: 8 }}>Anmelden</h1>
+    <div className="login-page">
+      <div className="login-card">
 
-      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <label htmlFor="email">E-Mail</label>
-          <input
-            id="email"
-            type="email"
-            value={email}
-            // onChange feuert bei jedem Tastendruck — aktualisiert den State
-            onChange={e => setEmail(e.target.value)}
-            required
-            autoFocus
-            style={{ padding: '8px', fontSize: 16 }}
-          />
+        {/* Logo — gleiche Optik wie im App-Header */}
+        <div className="login-logo">
+          <LogoIcon />
+          <span className="login-logo-text">my-BB</span>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <label htmlFor="password">Passwort</label>
-          <input
-            id="password"
-            type="password"
-            value={password}
-            onChange={e => setPassword(e.target.value)}
-            required
-            style={{ padding: '8px', fontSize: 16 }}
-          />
-        </div>
+        <h1>Anmelden</h1>
 
-        {/* Fehlermeldung — wird nur angezeigt wenn error nicht null ist */}
-        {error && (
-          <p style={{ color: 'red', margin: 0 }}>{error}</p>
-        )}
+        <form className="login-form" onSubmit={handleSubmit}>
 
-        <button
-          type="submit"
-          disabled={loading}
-          style={{ padding: '10px', fontSize: 16, cursor: loading ? 'not-allowed' : 'pointer' }}
-        >
-          {loading ? 'Anmelden...' : 'Anmelden'}
-        </button>
-      </form>
+          <div className="form-field">
+            <label htmlFor="email">E-Mail</label>
+            <input
+              id="email"
+              type="email"
+              value={email}
+              // onChange feuert bei jedem Tastendruck — aktualisiert den State
+              onChange={e => setEmail(e.target.value)}
+              required
+              autoFocus
+              autoComplete="email"
+              placeholder="deine@email.de"
+            />
+          </div>
 
-      {/* Link zur Registrierung */}
-      <p style={{ marginTop: 24, textAlign: 'center', color: '#666', fontSize: 14 }}>
-        Noch kein Konto?{' '}
-        <button
-          onClick={() => navigate('/register')}
-          style={{ background: 'none', border: 'none', color: '#0070f3', cursor: 'pointer', fontSize: 14, padding: 0 }}
-        >
-          Jetzt registrieren
-        </button>
-      </p>
+          <div className="form-field">
+            <label htmlFor="password">Passwort</label>
+            <input
+              id="password"
+              type="password"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              required
+              autoComplete="current-password"
+              placeholder="••••••••"
+            />
+          </div>
+
+          {/* Fehlermeldung — wird nur angezeigt wenn error nicht null ist */}
+          {error && <p className="login-error">{error}</p>}
+
+          <button
+            type="submit"
+            className="login-submit"
+            disabled={loading}
+          >
+            {loading ? 'Anmelden…' : 'Anmelden'}
+          </button>
+
+        </form>
+
+        {/* Link zur Registrierungsseite */}
+        <p className="login-footer-text">
+          Noch kein Konto?{' '}
+          <button
+            className="login-link"
+            onClick={() => navigate('/register')}
+          >
+            Jetzt registrieren
+          </button>
+        </p>
+
+      </div>
     </div>
   )
 }

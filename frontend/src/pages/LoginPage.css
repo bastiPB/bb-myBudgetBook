@@ -1,0 +1,202 @@
+/* LoginPage.css — Styling für die Login-Seite und ihre Zustände.
+   Nutzt dieselben CSS-Variablen wie AppLayout.css (--color-bg, --color-accent usw.)
+   Die Variablen werden in AppLayout.css auf :root definiert und sind global verfügbar. */
+
+/* Volle Bildschirmhöhe, Karte zentriert */
+.login-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-bg);
+  padding: 24px 16px;
+}
+
+/* Weiße Karte mit Rahmen — Hauptcontainer für Formular und Info-Screens */
+.login-card {
+  width: 100%;
+  max-width: 380px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  padding: 36px 32px;
+}
+
+/* Logo oben in der Karte — SVG + App-Name nebeneinander */
+.login-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 28px;
+}
+
+.login-logo-text {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--color-text);
+  letter-spacing: -0.01em;
+}
+
+/* Seitenüberschrift */
+.login-card h1 {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--color-text);
+  margin: 0 0 22px;
+  text-align: center;
+}
+
+/* Formular: Felder untereinander mit Abstand */
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* Label + Input als Block */
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.form-field label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-muted);
+}
+
+.form-field input {
+  padding: 9px 12px;
+  font-size: 14px;
+  font-family: inherit;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.2s;
+}
+
+/* Fokus-Ring in der Akzentfarbe */
+.form-field input:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-light);
+}
+
+/* Fehlermeldung — farblich dezent hervorgehoben */
+.login-error {
+  font-size: 13px;
+  color: #b94040;
+  background: #fdf0ee;
+  border: 1px solid #f5c6c0;
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin: 0;
+}
+
+/* Dark Mode: Fehlerfarben anpassen damit es nicht brennt */
+[data-theme="dark"] .login-error {
+  color: #e89090;
+  background: #2a1a1a;
+  border-color: #5c2828;
+}
+
+/* Anmelden-Button: volle Breite, Primärfarbe */
+.login-submit {
+  width: 100%;
+  margin-top: 4px;
+  padding: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  border-radius: 6px;
+  border: 1px solid var(--color-accent);
+  background: var(--color-accent);
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.login-submit:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+  border-color: var(--color-accent-hover);
+}
+
+.login-submit:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* Text + Link unter dem Formular */
+.login-footer-text {
+  margin-top: 20px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+/* "Jetzt registrieren"-Button der wie ein Link aussieht */
+.login-link {
+  background: none;
+  border: none;
+  color: var(--color-accent);
+  cursor: pointer;
+  font-size: 13px;
+  font-family: inherit;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.login-link:hover {
+  color: var(--color-accent-hover);
+}
+
+/* Info-Card für Sonderzustände (bereits eingeloggt / gerade abgemeldet) */
+.login-info-card {
+  width: 100%;
+  max-width: 380px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  padding: 40px 32px;
+  text-align: center;
+}
+
+.login-info-card h2 {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--color-text);
+  margin: 0 0 10px;
+}
+
+.login-info-card p {
+  font-size: 14px;
+  color: var(--color-text-muted);
+  margin: 0 0 24px;
+  line-height: 1.6;
+}
+
+/* Sekundärer Button (für "Jetzt zum Dashboard" / "Jetzt anmelden") */
+.login-btn-secondary {
+  display: inline-block;
+  padding: 9px 22px;
+  font-size: 14px;
+  font-weight: 500;
+  font-family: inherit;
+  border-radius: 6px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.login-btn-secondary:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  background: var(--color-accent-light);
+}

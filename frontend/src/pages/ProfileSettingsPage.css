@@ -1,0 +1,55 @@
+/* ProfileSettingsPage.css
+   Basis-Styles (Karten, Tabelle, Checkboxen, Fehler) kommen aus SettingsPage.css. */
+@import './SettingsPage.css';
+
+/* ── Anzeigename: Input + Button nebeneinander ── */
+.profile-name-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.profile-name-input {
+  flex: 1;
+  padding: 9px 12px;
+  font-size: 14px;
+  font-family: inherit;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.profile-name-input:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-light);
+}
+
+/* Erfolgs-Meldung "Gespeichert!" */
+.profile-success {
+  font-size: 13px;
+  color: #2d8a50;
+  margin: 6px 0 0;
+}
+
+[data-theme="dark"] .profile-success {
+  color: #6dba8a;
+}
+
+/* Platzhalter-Hinweis für das Profilbild */
+.profile-avatar-placeholder {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-border);
+  font-size: 13px;
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+/* Leer-Zustand: kein Modul vom Admin freigegeben */
+.profile-no-modules {
+  font-size: 14px;
+  color: var(--color-text-muted);
+}

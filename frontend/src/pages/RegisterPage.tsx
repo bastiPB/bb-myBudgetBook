@@ -2,8 +2,29 @@
 // Nach erfolgreicher Registrierung wartet der Account auf Admin-Freigabe.
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+
 import { registerUser } from '../api/auth'
 import { useAuth } from '../context/useAuth'
+import './RegisterPage.css'
+
+// SVG-Logo — identisch zu LoginPage und AppLayout
+function LogoIcon() {
+  return (
+    <svg width="32" height="32" viewBox="0 0 26 26" fill="none" aria-hidden="true">
+      <rect width="26" height="26" rx="6" fill="var(--color-accent)" />
+      <text
+        x="3"
+        y="19"
+        fontFamily="system-ui, sans-serif"
+        fontWeight="800"
+        fontSize="14"
+        fill="white"
+      >
+        BB
+      </text>
+    </svg>
+  )
+}
 
 export default function RegisterPage() {
   const navigate = useNavigate()
@@ -22,6 +43,12 @@ export default function RegisterPage() {
 
   // Countdown für den Redirect wenn der User bereits eingeloggt ist
   const [countdown, setCountdown] = useState(3)
+
+  // Theme aus localStorage anwenden — damit die Register-Seite das gespeicherte Theme zeigt
+  useEffect(() => {
+    const savedTheme = localStorage.getItem('bb-theme') ?? 'light'
+    document.documentElement.setAttribute('data-theme', savedTheme)
+  }, [])
 
   // Wenn der User bereits eingeloggt ist: Countdown starten, dann zum Dashboard
   useEffect(() => {
@@ -59,107 +86,129 @@ export default function RegisterPage() {
   // Bereits eingeloggt → Hinweisscreen mit Countdown anzeigen
   if (user) {
     return (
-      <div style={{ maxWidth: 400, margin: '80px auto', padding: '0 16px', textAlign: 'center' }}>
-        <h2>Du bist bereits registriert und eingeloggt.</h2>
-        <p style={{ color: '#666', marginTop: 8 }}>
-          Du wirst in {countdown} Sekunde{countdown !== 1 ? 'n' : ''} zum Dashboard weitergeleitet…
-        </p>
-        <button
-          onClick={() => navigate('/dashboard')}
-          style={{ marginTop: 24, padding: '10px 24px' }}
-        >
-          Jetzt zum Dashboard
-        </button>
+      <div className="login-page">
+        <div className="login-info-card">
+          <h2>Du bist bereits eingeloggt.</h2>
+          <p>
+            Du wirst in {countdown} Sekunde{countdown !== 1 ? 'n' : ''} zum
+            Dashboard weitergeleitet…
+          </p>
+          <button
+            className="login-btn-secondary"
+            onClick={() => navigate('/dashboard')}
+          >
+            Jetzt zum Dashboard
+          </button>
+        </div>
       </div>
     )
   }
 
-  // Erfolgsscreen: Account ist pending, warte auf Admin-Freigabe
+  // Erfolgsscreen: Account ist pending, wartet auf Admin-Freigabe
   if (success) {
     return (
-      <div style={{ maxWidth: 400, margin: '80px auto', padding: '0 16px', textAlign: 'center' }}>
-        <h1 style={{ marginBottom: 16 }}>Registrierung erfolgreich!</h1>
-        <p style={{ color: '#444', marginBottom: 8 }}>
-          Dein Account wurde angelegt und wartet auf Freigabe durch einen Admin.
-        </p>
-        <p style={{ color: '#666', fontSize: 14, marginBottom: 32 }}>
-          Sobald dein Account freigegeben wurde, kannst du dich einloggen.
-        </p>
-        <button onClick={() => navigate('/login')} style={{ padding: '10px 24px', fontSize: 16 }}>
-          Zum Login
-        </button>
+      <div className="login-page">
+        <div className="login-info-card">
+          <h2>Registrierung erfolgreich!</h2>
+          <p>
+            Dein Account wurde angelegt und wartet auf Freigabe durch einen
+            Admin. Sobald das passiert ist, kannst du dich einloggen.
+          </p>
+          <button
+            className="login-btn-secondary"
+            onClick={() => navigate('/login')}
+          >
+            Zum Login
+          </button>
+        </div>
       </div>
     )
   }
 
   return (
-    <div style={{ maxWidth: 400, margin: '80px auto', padding: '0 16px' }}>
-      <h1 style={{ marginBottom: 8 }}>Registrieren</h1>
-      <p style={{ color: '#666', marginBottom: 24, fontSize: 14 }}>
-        Nach der Registrierung muss dein Account von einem Admin freigegeben werden.
-      </p>
+    <div className="login-page">
+      <div className="login-card">
 
-      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <label htmlFor="email">E-Mail</label>
-          <input
-            id="email"
-            type="email"
-            value={email}
-            onChange={e => setEmail(e.target.value)}
-            required
-            autoFocus
-            style={{ padding: '8px', fontSize: 16 }}
-          />
+        {/* Logo — gleiche Optik wie Login und App-Header */}
+        <div className="login-logo">
+          <LogoIcon />
+          <span className="login-logo-text">my-BB</span>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <label htmlFor="password">Passwort</label>
-          <input
-            id="password"
-            type="password"
-            value={password}
-            onChange={e => setPassword(e.target.value)}
-            required
-            // minLength prüft der Browser selbst — kein extra JS nötig
-            minLength={8}
-            style={{ padding: '8px', fontSize: 16 }}
-          />
-        </div>
+        <h1>Registrieren</h1>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <label htmlFor="passwordConfirm">Passwort bestätigen</label>
-          <input
-            id="passwordConfirm"
-            type="password"
-            value={passwordConfirm}
-            onChange={e => setPasswordConfirm(e.target.value)}
-            required
-            style={{ padding: '8px', fontSize: 16 }}
-          />
-        </div>
+        <form className="login-form" onSubmit={handleSubmit}>
 
-        {error && <p style={{ color: 'red', margin: 0 }}>{error}</p>}
+          <div className="form-field">
+            <label htmlFor="email">E-Mail</label>
+            <input
+              id="email"
+              type="email"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              required
+              autoFocus
+              autoComplete="email"
+              placeholder="deine@email.de"
+            />
+          </div>
 
-        <button
-          type="submit"
-          disabled={loading}
-          style={{ padding: '10px', fontSize: 16, cursor: loading ? 'not-allowed' : 'pointer' }}
-        >
-          {loading ? 'Registrieren...' : 'Registrieren'}
-        </button>
-      </form>
+          <div className="form-field">
+            <label htmlFor="password">Passwort</label>
+            <input
+              id="password"
+              type="password"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              required
+              // minLength prüft der Browser selbst — kein extra JS nötig
+              minLength={8}
+              autoComplete="new-password"
+              placeholder="Mindestens 8 Zeichen"
+            />
+          </div>
 
-      {/* Link zurück zum Login */}
-      <p style={{ marginTop: 24, textAlign: 'center', color: '#666', fontSize: 14 }}>
-        Bereits registriert?{' '}
-        <button
-          onClick={() => navigate('/login')}
-          style={{ background: 'none', border: 'none', color: '#0070f3', cursor: 'pointer', fontSize: 14, padding: 0 }}
-        >
-          Anmelden
-        </button>
-      </p>
+          <div className="form-field">
+            <label htmlFor="passwordConfirm">Passwort bestätigen</label>
+            <input
+              id="passwordConfirm"
+              type="password"
+              value={passwordConfirm}
+              onChange={e => setPasswordConfirm(e.target.value)}
+              required
+              autoComplete="new-password"
+              placeholder="••••••••"
+            />
+          </div>
+
+          {error && <p className="login-error">{error}</p>}
+
+          <button
+            type="submit"
+            className="login-submit"
+            disabled={loading}
+          >
+            {loading ? 'Registrieren…' : 'Registrieren'}
+          </button>
+
+        </form>
+
+        {/* Hinweis unter dem Formular: Account braucht Admin-Freigabe */}
+        <p className="login-footer-text">
+          Nach der Registrierung muss dein Account von einem Admin freigegeben werden.
+        </p>
+
+        <p className="login-footer-text" style={{ marginTop: 8 }}>
+          Bereits registriert?{' '}
+          <button
+            className="login-link"
+            onClick={() => navigate('/login')}
+          >
+            Anmelden
+          </button>
+        </p>
+
+      </div>
     </div>
   )
 }
