@@ -72,30 +72,24 @@ Vollständige Spec + Implementierungsdetails: `docs/14-v020-module-system.md`
 
 ---
 
-## v0.2.1 — UI Shell + Dashboard Initial — Geplant
+## v0.2.1 — UI Shell + Dashboard Initial — Abgeschlossen ✅
 
 **Ziel:** Das Frontend bekommt eine stabile Grundstruktur (Header, Sidebar, Footer) und eine erste klare Dashboard-Startansicht.
 
 Vollständige Scope-Definition: `docs/15-v021-ui-shell-and-dashboard-initial.md`
 
-### Scope für dieses Mini-Release
+### Was in v0.2.1 entstanden ist
 
-- App-Shell mit `Header`, `Sidebar`, `Footer` als wiederverwendbare Layout-Bausteine
-- Grundlayout für Desktop und mobile Ansicht (responsives Verhalten)
-- Erste Dashboard-Initialansicht mit klarer Struktur (Hero/Kurzstatus/Schnellzugriffe)
-- Dashboard soll mit leerem Datenstand verständlich bleiben (Empty-State)
+- App-Shell (`AppLayout.tsx`) mit Header, Sidebar, Footer — wiederverwendbar für alle geschützten Seiten
+- CSS Design-System mit Custom Properties (Light/Dark Mode) — ADR 0009
+- Dark/Light-Toggle als Pill-Schiebeschalter mit SVG-Icons
+- Alle bestehenden Seiten auf das neue Design-System umgestellt
+- Design Guide (`docs/16-design-guide.md`) als lebendige Referenz
+- Dashboard-Initialansicht mit Onboarding-Karte und Empty-State
 
-### Out of Scope (nicht Teil von v0.2.1)
+### Bewusst verschoben auf v0.5.x
 
-- Neue Business-Logik oder neue Datenmodelle
-- Neue API-Endpunkte
-- Finale Detail-Visualisierung für alle Module
-
-### Doku-Ziel in v0.2.1
-
-- `CHANGELOG.md` pflegen (`[Unreleased]` und später `0.2.1`)
-- Scope-Dokument aktuell halten
-- Falls Layout-Architektur-Entscheidung dauerhaft ist: ADR ergänzen
+- **Mobile-Responsiveness**: Sidebar, Header und Layout sind aktuell für Desktop optimiert. Mobile-Ansicht wird in einem separaten Schritt nachgezogen — Fokus liegt bewusst auf Desktop-Nutzung.
 
 ---
 

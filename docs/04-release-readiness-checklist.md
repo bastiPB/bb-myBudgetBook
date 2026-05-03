@@ -7,21 +7,21 @@ status: living
 # Release Readiness Checklist (v0.1)
 
 ## Funktional
-- [ ] docker-compose up funktioniert ohne Sonderaktionen
-- [ ] Erstinstallation: Admin/User Setup möglich
-- [ ] Login/Logout funktioniert
-- [ ] Registrierung erstellt Nutzer als `pending` mit Rolle `Default`
-- [ ] `pending` Nutzer können sich nicht einloggen
-- [ ] Admin-Freigabe aktiviert Login für neue Nutzer
-- [ ] Abos CRUD vollständig
-- [ ] Übersicht: monatliche Summe + nächste Fälligkeiten/Laufzeiten
+- [x] docker-compose up funktioniert ohne Sonderaktionen
+- [x] Erstinstallation: Admin/User Setup möglich
+- [x] Login/Logout funktioniert
+- [x] Registrierung erstellt Nutzer als `pending` mit Rolle `Default`
+- [x] `pending` Nutzer können sich nicht einloggen
+- [x] Admin-Freigabe aktiviert Login für neue Nutzer
+- [x] Abos CRUD vollständig
+- [x] Übersicht: monatliche Summe + nächste Fälligkeiten/Laufzeiten
 
 ## Security
-- [ ] Passwort-Hashing: Argon2id
-- [ ] Session Cookies: HttpOnly/Secure/SameSite
+- [x] Passwort-Hashing: Argon2id
+- [x] Session Cookies: HttpOnly/Secure/SameSite
 - [ ] Input Validation / sichere DB-Zugriffe
-- [ ] RBAC-Basisregeln erzwungen (`Admin`, `Viewer`, `Default`)
-- [ ] Rollenverwaltung nur über Admin
+- [x] RBAC-Basisregeln erzwungen (`Admin`, `Viewer`, `Default`)
+- [x] Rollenverwaltung nur über Admin
 - [ ] `Default` sieht keine sensitiven Finanzdaten
 - [ ] Keine Secrets im Repo
 - [ ] Keine sensitiven Daten in Logs
@@ -35,12 +35,13 @@ status: living
 - [ ] Release-Tag (`vX.Y.Z`) vorbereitet und passender CHANGELOG-Abschnitt vorhanden
 - [ ] Security Policy vorhanden (SECURITY.md)
 
-## Addendum v0.2.1 (UI Shell Mini-Release)
-- [ ] Header ist auf allen geschützten Seiten sichtbar und konsistent
-- [ ] Sidebar-Navigation ist auf Desktop nutzbar und auf mobilen Breiten bedienbar
-- [ ] Footer ist vorhanden und überlappt keinen Inhalt
-- [ ] Dashboard-Initialansicht hat definierten Empty-State (kein "leerer Bildschirm")
-- [ ] Layout funktioniert ohne horizontales Scrollen bei typischen mobilen Breiten
-- [ ] Frontend `npm run lint` ist grün
-- [ ] Frontend `npm run build` ist grün
-- [ ] Scope-Dokument für v0.2.1 ist aktualisiert
+## Addendum v0.2.1 (UI Shell Mini-Release) — Abgeschlossen 2026-05-03
+- [x] Header ist auf allen geschützten Seiten sichtbar und konsistent
+- [x] Sidebar-Navigation ist auf Desktop nutzbar
+- [x] Footer ist vorhanden und überlappt keinen Inhalt
+- [x] Dashboard-Initialansicht hat definierten Empty-State (kein "leerer Bildschirm")
+- [ ] Sidebar/Layout auf mobilen Breiten bedienbar ← bewusst auf v0.2.x verschoben
+- [ ] Layout ohne horizontales Scrollen bei mobilen Breiten ← bewusst auf v0.2.x verschoben
+- [x] Frontend `npm run lint` ist grün
+- [x] Frontend `npm run build` ist grün
+- [x] Scope-Dokument für v0.2.1 ist aktualisiert

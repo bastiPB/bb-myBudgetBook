@@ -1,6 +1,6 @@
 ---
 doc: v021-ui-shell-dashboard-initial
-status: draft
+status: released
 owner: bastiPB
 ---
 
