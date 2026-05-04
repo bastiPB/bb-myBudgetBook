@@ -47,6 +47,10 @@ def update_settings(session: Session, payload: AppSettingsUpdate) -> AppSettings
         # settings.modules["key"] = True. Deshalb immer ein neues dict zuweisen.
         settings.modules = dict(payload.modules)
 
+    if payload.scheduler_time is not None:
+        # Format "HH:MM" speichern — wird in main.py beim App-Start ausgelesen
+        settings.scheduler_time = payload.scheduler_time
+
     session.commit()
     session.refresh(settings)
     return settings

@@ -11,7 +11,7 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
-from app.models.subscription import BillingInterval, SubscriptionStatus
+from app.models.subscription import BillingInterval, PaymentStatus, SubscriptionStatus
 
 
 def _normalize_amount(v: object) -> object:
@@ -205,3 +205,20 @@ class PriceHistoryEntry(BaseModel):
     subscription_id: uuid.UUID
     amount: Decimal
     valid_from: date
+
+
+class ScheduledPaymentRead(BaseModel):
+    """
+    Ausgabe-Schema für eine geplante Buchung (Slice F).
+
+    Wird vom Scheduler täglich erzeugt — je ein Eintrag pro Abo und Fälligkeitstag.
+    status: pending (noch nicht abgeglichen), matched (bezahlt erkannt), missed (verfallen)
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    subscription_id: uuid.UUID
+    due_date: date
+    amount: Decimal
+    status: PaymentStatus

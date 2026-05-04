@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.exceptions import ForbiddenError, InvalidFileError, InvalidSubscriptionStatusError, SubscriptionNotFoundError
-from app.models.subscription import BillingInterval, Subscription, SubscriptionPriceHistory, SubscriptionStatus
+from app.models.subscription import BillingInterval, Subscription, SubscriptionPriceHistory, SubscriptionScheduledPayment, SubscriptionStatus
 from app.schemas.subscription import SubscriptionCreate, SubscriptionUpdate, SuspendPayload
 
 # Umrechnungsfaktoren: wie viel eines Abo-Betrags fällt pro Monat an?
@@ -287,6 +287,29 @@ def get_price_history(
         .where(SubscriptionPriceHistory.subscription_id == subscription_id)
         # Neuester Eintrag zuerst — so erscheint der aktuelle Preis oben in der UI
         .order_by(SubscriptionPriceHistory.valid_from.desc())
+    )
+    return list(session.execute(stmt).scalars().all())
+
+
+def get_scheduled_payments(
+    session: Session,
+    subscription_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> list[SubscriptionScheduledPayment]:
+    """
+    Gibt alle Soll-Buchungen eines Abos zurück, absteigend nach Fälligkeitsdatum.
+
+    Wirft SubscriptionNotFoundError wenn das Abo nicht existiert.
+    Wirft ForbiddenError wenn das Abo einem anderen User gehört.
+    """
+    sub = _get_subscription_or_raise(session, subscription_id)
+    _check_ownership(sub, user_id)
+
+    stmt = (
+        select(SubscriptionScheduledPayment)
+        .where(SubscriptionScheduledPayment.subscription_id == subscription_id)
+        # Neueste Buchung zuerst — so sieht der User die aktuellsten Einträge oben
+        .order_by(SubscriptionScheduledPayment.due_date.desc())
     )
     return list(session.execute(stmt).scalars().all())
 

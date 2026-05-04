@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean
+from sqlalchemy import Boolean, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -24,3 +24,7 @@ class AppSettings(BaseModel):
     # JSONB = binäres JSON in PostgreSQL — schneller als Text-JSON, unterstützt GIN-Indexierung
     # Neue Module brauchen keine neue DB-Spalte, nur einen neuen Key in diesem Objekt (ADR 0007)
     modules: Mapped[dict] = mapped_column(JSONB, nullable=False, default=lambda: {"subscriptions": True})
+
+    # Uhrzeit, zu der der Scheduler täglich Soll-Buchungen generiert — Format "HH:MM"
+    # Wird beim App-Start in main.py ausgelesen und an APScheduler übergeben
+    scheduler_time: Mapped[str] = mapped_column(String(5), nullable=False, default="03:00")

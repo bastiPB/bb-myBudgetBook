@@ -22,6 +22,7 @@ from app.dependencies import DatabaseSession, EditorOrAdminUser
 from app.schemas.subscription import (
     OverviewRead,
     PriceHistoryEntry,
+    ScheduledPaymentRead,
     SubscriptionCreate,
     SubscriptionDetail,
     SubscriptionRead,
@@ -33,6 +34,7 @@ from app.services.subscriptions import (
     delete_subscription,
     get_overview,
     get_price_history,
+    get_scheduled_payments,
     get_subscription_detail,
     list_subscriptions,
     resume_subscription,
@@ -139,6 +141,25 @@ def price_history(
     """
     entries = get_price_history(session, subscription_id, user.id)
     return [PriceHistoryEntry.model_validate(e) for e in entries]
+
+
+@router.get("/{subscription_id}/scheduled-payments", response_model=list[ScheduledPaymentRead])
+def scheduled_payments(
+    subscription_id: uuid.UUID,
+    user: EditorOrAdminUser,
+    session: DatabaseSession,
+) -> list[ScheduledPaymentRead]:
+    """
+    Gibt alle Soll-Buchungen eines Abos zurück (Slice G).
+
+    Einträge sind absteigend nach Fälligkeitsdatum sortiert (neueste zuerst).
+    Leere Liste wenn noch keine Buchungen generiert wurden oder Buchungshistorie deaktiviert ist.
+    Fehler:
+      - 404 wenn das Abo nicht gefunden wird
+      - 403 wenn das Abo einem anderen User gehört
+    """
+    entries = get_scheduled_payments(session, subscription_id, user.id)
+    return [ScheduledPaymentRead.model_validate(e) for e in entries]
 
 
 @router.post("/{subscription_id}/suspend", response_model=SubscriptionRead)

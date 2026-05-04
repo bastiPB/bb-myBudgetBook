@@ -3,7 +3,7 @@ import uuid
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import Date, Enum as SAEnum, ForeignKey, Numeric, String, Text
+from sqlalchemy import Date, Enum as SAEnum, ForeignKey, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import BaseModel
@@ -73,6 +73,53 @@ class Subscription(BaseModel):
 
     # Bis wann ist die Leistung noch nutzbar? (z.B. Ende des bezahlten Monats)
     access_until: Mapped[date | None] = mapped_column(Date, nullable=True)
+
+
+class PaymentStatus(str, enum.Enum):
+    """
+    Status einer geplanten Buchung (scheduled payment).
+    pending = generiert, aber noch nicht bezahlt/geprüft
+    matched = als bezahlt erkannt (Slice G)
+    missed  = Fälligkeitsdatum überschritten ohne Match (Slice G)
+    """
+    pending = "pending"
+    matched = "matched"
+    missed  = "missed"
+
+
+class SubscriptionScheduledPayment(BaseModel):
+    """
+    Eine täglich generierte Soll-Buchung für ein aktives Abo.
+
+    Der Scheduler erzeugt jeden Tag für jedes aktive Abo mit
+    subscription_booking_history=True einen Eintrag — sofern der
+    UNIQUE-Constraint (subscription_id, due_date) noch nicht existiert.
+    So kann der Scheduler beliebig oft laufen, ohne Duplikate zu erzeugen.
+    """
+    __tablename__ = "subscription_scheduled_payments"
+
+    # Welches Abo? Bei Löschung des Abos fallen alle Einträge automatisch mit.
+    subscription_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("subscriptions.id", ondelete="CASCADE"), index=True
+    )
+
+    # Fälligkeitsdatum dieser Buchung — zusammen mit subscription_id einzigartig (Idempotenz)
+    due_date: Mapped[date] = mapped_column(Date, nullable=False)
+
+    # Betrag zum Zeitpunkt der Generierung — wird von der aktuellen amount übernommen
+    amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+
+    # Status: startet immer als "pending"
+    status: Mapped[PaymentStatus] = mapped_column(
+        SAEnum(PaymentStatus, name="paymentstatus"),
+        default=PaymentStatus.pending,
+        nullable=False,
+    )
+
+    # UNIQUE-Constraint: verhindert doppelte Einträge für denselben Tag + Abo (Idempotenz-Herzstück)
+    __table_args__ = (
+        UniqueConstraint("subscription_id", "due_date", name="uq_scheduled_payment"),
+    )
 
 
 class SubscriptionPriceHistory(BaseModel):
