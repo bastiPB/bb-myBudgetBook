@@ -1,0 +1,412 @@
+/* SubscriptionDetailPage.css — Styling für die Abo-Detailseite.
+   Button-Klassen (btn-primary-sm, btn-outline-sm) kommen aus SubscriptionsPage.css.
+   Alle Farben über CSS-Variablen aus AppLayout.css. */
+
+/* ── Seitenlayout ── */
+.detail-page {
+  max-width: 720px;
+}
+
+/* ── Zurück-Button ── */
+.detail-back-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 0;
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 14px;
+  font-family: inherit;
+  cursor: pointer;
+  margin-bottom: 20px;
+  transition: color 0.15s;
+}
+
+.detail-back-btn:hover {
+  color: var(--color-accent);
+}
+
+/* ── Kopfbereich: Logo + Name + Status-Badge ── */
+.detail-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+/* Info-Block rechts vom Logo: Name + Badge + optionaler Fehlertext */
+.detail-header-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-top: 6px; /* optisch auf Höhe der Logo-Mitte ausrichten */
+}
+
+/* ── Logo-Container ── */
+.detail-logo-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+/* Bild wenn ein Logo vorhanden ist */
+.detail-logo-img {
+  width: 56px;
+  height: 56px;
+  border-radius: 10px;
+  object-fit: cover;
+  border: 1px solid var(--color-border);
+  display: block;
+}
+
+/* Fallback: erster Buchstabe des Abo-Namens auf farbigem Hintergrund */
+.detail-logo-fallback {
+  width: 56px;
+  height: 56px;
+  border-radius: 10px;
+  background: var(--color-accent-light);
+  border: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--color-accent);
+}
+
+/* Kleiner Upload-Button unten-rechts am Logo */
+.detail-logo-upload-btn {
+  position: absolute;
+  bottom: -6px;
+  right: -6px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.detail-logo-upload-btn:hover:not(:disabled) {
+  background: var(--color-accent);
+  color: #fff;
+  border-color: var(--color-accent);
+}
+
+.detail-logo-upload-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Fehlermeldung beim Logo-Upload */
+.detail-logo-error {
+  font-size: 12px;
+  color: #c0392b;
+  margin: 0;
+  width: 100%; /* eigene Zeile wenn Name + Badge bereits voll sind */
+}
+
+.detail-name {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--color-text);
+  margin: 0;
+}
+
+/* ── Status-Badge (gleiche Farben wie subs-status-* in SubscriptionsPage.css) ── */
+.detail-status-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+.detail-status-active {
+  background: #eafaf1;
+  color: #1d8348;
+  border: 1px solid #a9dfbf;
+}
+
+[data-theme="dark"] .detail-status-active {
+  background: #0d2e1a;
+  color: #52b788;
+  border-color: #1e5c32;
+}
+
+.detail-status-suspended {
+  background: #fef5e7;
+  color: #935116;
+  border: 1px solid #f9c46b;
+}
+
+[data-theme="dark"] .detail-status-suspended {
+  background: #2e1e05;
+  color: #f4a261;
+  border-color: #6b3c0a;
+}
+
+.detail-status-canceled {
+  background: #f2f3f4;
+  color: #5d6d7e;
+  border: 1px solid #d5d8dc;
+}
+
+[data-theme="dark"] .detail-status-canceled {
+  background: #1e1e1e;
+  color: #8899aa;
+  border-color: #3a3a3a;
+}
+
+/* ── Kostenkarten ── */
+.detail-cost-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+@media (max-width: 540px) {
+  .detail-cost-cards {
+    grid-template-columns: 1fr;
+  }
+}
+
+.detail-cost-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.detail-cost-label {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.detail-cost-value {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--color-text);
+  letter-spacing: -0.01em;
+}
+
+.detail-cost-hint {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+/* ── Karten (Stammdaten, Notizen) ── */
+.detail-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: 20px 24px;
+  margin-bottom: 16px;
+}
+
+.detail-section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0 0 14px;
+}
+
+/* ── Definitions-Liste für Stammdaten ── */
+.detail-dl {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  gap: 10px 16px;
+}
+
+.detail-dl dt {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  font-weight: 500;
+  padding-top: 1px;
+}
+
+.detail-dl dd {
+  font-size: 14px;
+  color: var(--color-text);
+  font-weight: 500;
+  margin: 0;
+}
+
+/* ── Notizen-Ansicht ── */
+.detail-notes-view {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.detail-notes-text {
+  font-size: 14px;
+  color: var(--color-text);
+  line-height: 1.6;
+  white-space: pre-wrap;  /* Zeilenumbrüche aus dem Textarea erhalten */
+}
+
+.detail-notes-empty {
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+/* ── Notizen-Bearbeitung ── */
+.detail-notes-textarea {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 14px;
+  font-family: inherit;
+  line-height: 1.6;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  resize: vertical;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.detail-notes-textarea:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-light);
+}
+
+.detail-notes-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.detail-notes-error {
+  font-size: 13px;
+  color: #c0392b;
+  margin: 6px 0 0;
+}
+
+/* ── Aktions-Bereich ── */
+.detail-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+/* Pausieren-Button (orange Outline — konsistent mit subs-btn-suspend) */
+.detail-btn-suspend {
+  border-color: #e67e22 !important;
+  color: #935116 !important;
+}
+
+.detail-btn-suspend:hover {
+  background: #fef5e7 !important;
+  border-color: #d35400 !important;
+  color: #7d4408 !important;
+}
+
+/* Fortsetzen-Button (grün Outline — konsistent mit subs-btn-resume) */
+.detail-btn-resume {
+  border-color: #27ae60 !important;
+  color: #1d8348 !important;
+}
+
+.detail-btn-resume:hover {
+  background: #eafaf1 !important;
+  border-color: #1e8449 !important;
+  color: #145a32 !important;
+}
+
+/* ── Preishistorie-Tabelle (Slice E) ── */
+.detail-ph-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.detail-ph-table th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+  padding: 0 16px 10px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.detail-ph-table td {
+  padding: 10px 16px 10px 0;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text);
+}
+
+.detail-ph-table tr:last-child td {
+  border-bottom: none;
+}
+
+/* Aktueller Preis (neuester Eintrag) — fett hervorgehoben */
+.detail-ph-current td {
+  font-weight: 600;
+  color: var(--color-accent);
+}
+
+.detail-ph-empty {
+  color: var(--color-text-muted);
+  font-style: italic;
+  font-size: 14px;
+  margin: 0;
+}
+
+/* ── Buchungshistorie Status-Badge (Slice G) ── */
+.detail-payment-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.detail-payment-badge--pending {
+  background: #fff3cd;
+  color: #856404;
+}
+
+.detail-payment-badge--matched {
+  background: #d1e7dd;
+  color: #0a6640;
+}
+
+.detail-payment-badge--missed {
+  background: #f8d7da;
+  color: #842029;
+}
+
+/* ── Ladezustand & Fehler ── */
+.detail-loading,
+.detail-load-error {
+  font-size: 14px;
+  color: var(--color-text-muted);
+  padding: 20px 0;
+}
+
+.detail-load-error {
+  color: #c0392b;
+}

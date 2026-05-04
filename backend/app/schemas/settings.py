@@ -24,6 +24,8 @@ class AppSettingsRead(BaseModel):
     email_signup_enabled: bool
     # Welche Module systemweit freigeschaltet sind — Key = Modul-Key, Value = true/false
     modules: dict[str, bool]
+    # Uhrzeit des täglichen Schedulers im Format "HH:MM"
+    scheduler_time: str
 
 
 class AppSettingsUpdate(BaseModel):
@@ -44,3 +46,5 @@ class AppSettingsUpdate(BaseModel):
     # Bei modules: immer den vollständigen gewünschten Zustand schicken — keine Teil-Updates.
     # Das Frontend liest erst GET /settings und schickt dann den aktualisierten Zustand zurück.
     modules: dict[str, bool] | None = None
+    # Uhrzeit des Schedulers im Format "HH:MM" — optional, nur bei Änderung mitsenden
+    scheduler_time: str | None = None

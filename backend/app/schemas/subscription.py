@@ -11,7 +11,7 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
-from app.models.subscription import BillingInterval, SubscriptionStatus
+from app.models.subscription import BillingInterval, PaymentStatus, SubscriptionStatus
 
 
 def _normalize_amount(v: object) -> object:
@@ -156,6 +156,26 @@ class SubscriptionRead(BaseModel):
     access_until: date | None
 
 
+class SubscriptionDetail(SubscriptionRead):
+    """
+    Ausgabe-Schema für die Detailseite eines Abos (Slice C).
+
+    Erweitert SubscriptionRead um berechnete Kostenkennzahlen.
+    Diese Felder stehen nicht in der DB — der Service berechnet sie beim Abruf.
+
+    monthly_cost_normalized: Betrag auf Monatsbasis normiert
+                             (z. B. 89,90 € jährlich → 7,49 € monatlich)
+    yearly_cost_normalized:  monthly × 12
+    total_paid_estimate:     Schätzung der bisherigen Gesamtkosten
+                             (volle Abrechnungsperioden seit started_on × Betrag)
+                             Ignoriert Preisänderungen — exakte Werte folgen in Slice E.
+    """
+
+    monthly_cost_normalized: Decimal
+    yearly_cost_normalized: Decimal
+    total_paid_estimate: Decimal
+
+
 class OverviewRead(BaseModel):
     """
     Ausgabe-Schema für die Übersicht.
@@ -168,3 +188,37 @@ class OverviewRead(BaseModel):
 
     monthly_total: Decimal
     upcoming: list[SubscriptionRead]
+
+
+class PriceHistoryEntry(BaseModel):
+    """
+    Ausgabe-Schema für einen Preishistorie-Eintrag (Slice E).
+
+    Jeder Eintrag bedeutet "ab valid_from gilt Betrag amount".
+    Aufeinanderfolgende Einträge bilden eine lückenlose Preis-Zeitleiste.
+    Beispiel: {9.99, 2026-01-01} → {12.99, 2026-03-01} → {14.99, 2026-05-01}
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    subscription_id: uuid.UUID
+    amount: Decimal
+    valid_from: date
+
+
+class ScheduledPaymentRead(BaseModel):
+    """
+    Ausgabe-Schema für eine geplante Buchung (Slice F).
+
+    Wird vom Scheduler täglich erzeugt — je ein Eintrag pro Abo und Fälligkeitstag.
+    status: pending (noch nicht abgeglichen), matched (bezahlt erkannt), missed (verfallen)
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    subscription_id: uuid.UUID
+    due_date: date
+    amount: Decimal
+    status: PaymentStatus

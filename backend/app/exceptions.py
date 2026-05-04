@@ -71,6 +71,18 @@ class SubscriptionNotFoundError(AppError):
         super().__init__("Abo nicht gefunden.", status_code=404)
 
 
+class InvalidFileError(AppError):
+    """
+    Wird geworfen wenn eine hochgeladene Datei die Anforderungen nicht erfüllt.
+
+    Beispiele: falscher Dateityp (nur JPEG/PNG/WebP erlaubt) oder Datei zu groß (max. 2 MB).
+    HTTP 422 Unprocessable Entity = Anfrage technisch gültig, Inhalt aber unverarbeitbar.
+    """
+
+    def __init__(self, detail: str = "Ungültige Datei.") -> None:
+        super().__init__(detail, status_code=422)
+
+
 class InvalidSubscriptionStatusError(AppError):
     """
     Wird geworfen, wenn ein ungültiger Status-Übergang versucht wird.

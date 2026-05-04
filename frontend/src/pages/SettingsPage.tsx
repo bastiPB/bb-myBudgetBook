@@ -3,6 +3,7 @@
 // Abschnitt 2: Selbst-Registrierung ein/aus
 import { useEffect, useState } from 'react'
 
+import { triggerScheduledPayments } from '../api/admin'
 import { fetchSystemSettings, patchSystemSettings } from '../api/settings'
 import type { SystemSettings } from '../api/settings'
 import { useModules } from '../context/useModules'
@@ -14,6 +15,9 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState<SystemSettings | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // State für Scheduler-Trigger (Abschnitt 3)
+  const [triggerResult, setTriggerResult] = useState<string | null>(null)
+  const [triggering, setTriggering] = useState(false)
 
   useEffect(() => {
     fetchSystemSettings()
@@ -36,6 +40,20 @@ export default function SettingsPage() {
       setError((e as Error).message)
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function runScheduler() {
+    setTriggering(true)
+    setTriggerResult(null)
+    setError(null)
+    try {
+      const result = await triggerScheduledPayments()
+      setTriggerResult(`${result.created} neue Buchung(en) erzeugt.`)
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setTriggering(false)
     }
   }
 
@@ -120,6 +138,27 @@ export default function SettingsPage() {
             Selbst-Registrierung über /register erlauben
           </span>
         </label>
+      </div>
+
+      {/* ── Abschnitt 3: Scheduler ── */}
+      <div className="settings-card">
+        <h2>Buchungs-Scheduler</h2>
+        <p>
+          Der Scheduler läuft täglich automatisch und erzeugt Soll-Buchungen für alle Abos,
+          bei denen der User die Buchungshistorie aktiviert hat.
+          Hier kannst du ihn manuell für heute auslösen — z.&nbsp;B. nach einem Neustart oder zum Testen.
+          Der Vorgang ist idempotent: bereits vorhandene Einträge werden nicht doppelt erzeugt.
+        </p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <button className="btn-primary" onClick={runScheduler} disabled={triggering}>
+            {triggering ? 'Läuft…' : 'Jetzt ausführen'}
+          </button>
+          {triggerResult && (
+            <span style={{ fontSize: 13, color: 'var(--color-success, green)' }}>
+              {triggerResult}
+            </span>
+          )}
+        </div>
       </div>
 
     </div>

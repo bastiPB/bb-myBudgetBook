@@ -10,16 +10,22 @@ Format based on Keep a Changelog.
 - Subscriptions v0.2.2 (Slice A/B, in progress): Suspend-Endpoint mit optionalem `access_until`
 - Subscriptions v0.2.2 (Slice A/B, in progress): neue Felder `started_on`, `notes`, `suspended_at`, `access_until`
 - Subscriptions v0.2.2 (Slice A/B, in progress): Preis-Historie-Grundlage mit erster Testabdeckung (`test_subscriptions_v022.py`)
+- Subscriptions v0.2.3 (Slice C, in progress): Detailansicht pro Abo mit `GET /subscriptions/{id}` als Datenbasis
+- Subscriptions v0.2.3 (Slice C, in progress): Kostenkarten fuer monatlich, jaehrlich und kumuliert auf der Detailseite
+- Subscriptions v0.2.3 (Slice D, in progress): Provider-Logo-Flow (Upload, Speicherung, Thumbnail in Tabelle, groessere Darstellung in Details)
+- Subscriptions v0.2.3 (Slice D, in progress): Fallback-Icon wenn kein Logo hinterlegt ist
 
 ### Changed
 - Subscriptions v0.2.2 (Slice B, in progress): Tabellen-UX mit Suche und Seitengroessen (25/50/100)
 - Subscriptions v0.2.2 (Slice B, in progress): Betragseingabe akzeptiert Komma oder Punkt; Anzeige deutsch formatiert
+- Subscriptions v0.2.3 (Slice C, in progress): Notizen und Lifecycle-Aktionen werden aus der Tabellenansicht in die Detailansicht erweitert
 
 ### Fixed
 - Subscriptions v0.2.2: Resume-Flow ergaenzt (`POST /subscriptions/{id}/resume`) und `Fortsetzen`-Aktion in der Tabellenansicht fuer pausierte Abos hinzugefuegt
 
 ### Known Gaps
 - Keine offenen Gaps fuer Resume in Slice B; weitere Lifecycle-Feinheiten folgen in Slice C/D
+- Preis-Historie-API und History-UI bleiben bewusst fuer Slice E (nach C/D)
 
 ## [0.2.1] - 2026-05-03
 

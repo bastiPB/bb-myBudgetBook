@@ -17,6 +17,10 @@ class Settings(BaseSettings):
     # Leer lassen ("") = kein automatischer Admin wird angelegt.
     admin_email: str = ""
     admin_password: str = ""
+    # Verzeichnis für User-Uploads (Logos etc.) — ADR 0010: lokales Dateisystem.
+    # In Docker: ein gemountetes Volume, z. B. ./data/uploads:/uploads.
+    # Relativer Pfad nur für lokale Entwicklung außerhalb von Docker.
+    upload_dir: str = "/uploads"
 
     model_config = SettingsConfigDict(
         env_file=".env",

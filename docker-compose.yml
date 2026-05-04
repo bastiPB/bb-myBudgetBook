@@ -43,6 +43,10 @@ services:
     restart: unless-stopped
     # Lädt alle Variablen aus der .env-Datei in den Container
     env_file: .env
+    volumes:
+      # Persistentes Volume für hochgeladene Dateien (Logos etc.) — ADR 0010.
+      # Ohne dieses Volume gehen alle Uploads bei einem Container-Neustart verloren.
+      - uploads-data:/uploads
     # Kein Port nach außen — Backend ist nur über nginx (Port 80) erreichbar.
     # Für lokale Entwicklung: docker-compose.dev.yml verwenden.
     depends_on:
@@ -70,3 +74,5 @@ services:
 volumes:
   # Postgres-Daten überleben Container-Neustarts und docker compose down
   postgres-data:
+  # Hochgeladene Dateien (Logos) — persistiert über Container-Neustarts
+  uploads-data:

@@ -173,13 +173,14 @@
 }
 
 /* Explizite Spaltenbreiten — nur bei table-layout: fixed wirksam */
-/* v0.2.2: 6 Spalten statt 5 (neu: Status-Spalte) */
-.subs-table th:nth-child(1) { width: 27%; } /* Name */
-.subs-table th:nth-child(2) { width: 10%; } /* Status */
-.subs-table th:nth-child(3) { width: 11%; } /* Betrag */
-.subs-table th:nth-child(4) { width: 14%; } /* Intervall */
-.subs-table th:nth-child(5) { width: 13%; } /* Fälligkeit */
-.subs-table th:nth-child(6) { width: 25%; } /* Aktionen */
+/* v0.2.2 Slice D: 7 Spalten (neu: Logo-Spalte als erste Spalte) */
+.subs-table th:nth-child(1) { width: 5%;  } /* Logo */
+.subs-table th:nth-child(2) { width: 24%; } /* Name */
+.subs-table th:nth-child(3) { width: 10%; } /* Status */
+.subs-table th:nth-child(4) { width: 11%; } /* Betrag */
+.subs-table th:nth-child(5) { width: 14%; } /* Intervall */
+.subs-table th:nth-child(6) { width: 12%; } /* Fälligkeit */
+.subs-table th:nth-child(7) { width: 24%; } /* Aktionen */
 
 
 .subs-table th {
@@ -387,6 +388,44 @@
   background: #1e1e1e;
   color: #8899aa;
   border-color: #3a3a3a;
+}
+
+/* ── Logo-Thumbnail in der Tabelle ── */
+.subs-logo-thumb {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  object-fit: cover;
+  border: 1px solid var(--color-border);
+  display: block;
+}
+
+/* Fallback wenn kein Logo vorhanden: erster Buchstabe des Abo-Namens */
+.subs-logo-fallback {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: var(--color-accent-light);
+  border: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-accent);
+}
+
+/* ── Name-Link zur Detailseite ── */
+.subs-name-link {
+  color: var(--color-text);
+  text-decoration: none;
+  font-weight: 500;
+  transition: color 0.15s;
+}
+
+.subs-name-link:hover {
+  color: var(--color-accent);
+  text-decoration: underline;
 }
 
 /* ── Pausieren-Button (orange Outline) ── */

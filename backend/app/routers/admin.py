@@ -14,6 +14,7 @@ from app.dependencies import AdminUser, DatabaseSession
 from app.schemas.admin import AdminUserCreate, RoleUpdate
 from app.schemas.user import UserRead
 from app.services.admin import approve_user, create_user_as_admin, delete_user, list_users, update_user_role
+from app.services.scheduler_service import generate_scheduled_payments
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -94,3 +95,17 @@ def remove_user(user_id: uuid.UUID, admin: AdminUser, session: DatabaseSession) 
       - 403 wenn Admin versucht sich selbst zu löschen
     """
     delete_user(session, user_id, admin.id)
+
+
+@router.post("/subscriptions/trigger-payments")
+def trigger_payments(admin: AdminUser, session: DatabaseSession) -> dict[str, int]:
+    """
+    Löst den Scheduler manuell aus — erzeugt Soll-Buchungen für heute.
+
+    Nützlich für Tests oder wenn der Scheduler einen Lauf verpasst hat.
+    Gibt zurück: { "created": 3 } — Anzahl neu angelegter Einträge.
+    Idempotent: bereits vorhandene Einträge werden nicht doppelt erzeugt.
+    Nur für Admins erreichbar.
+    """
+    count = generate_scheduled_payments(session)
+    return {"created": count}

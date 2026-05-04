@@ -12,8 +12,10 @@ zum Beispiel einen Anzeigenamen setzen, bevor der Admin die Rolle vergibt.
 from fastapi import APIRouter
 
 from app.dependencies import CurrentUser, DatabaseSession
+from app.schemas.module_config import UserModuleConfigRead, UserModuleConfigUpdate
 from app.schemas.profile import ProfileSettingsRead, ProfileSettingsUpdate
 from app.services.profile import get_or_create_user_settings, update_profile
+from app.services.scheduler_service import read_module_config, update_module_config
 
 router = APIRouter(prefix="/profile", tags=["profile"])
 
@@ -52,3 +54,33 @@ def patch_profile_settings(
     """
     settings = update_profile(session, current_user.id, payload)
     return ProfileSettingsRead.model_validate(settings)
+
+
+@router.get("/module-config", response_model=UserModuleConfigRead)
+def read_module_config_endpoint(
+    current_user: CurrentUser, session: DatabaseSession
+) -> UserModuleConfigRead:
+    """
+    Gibt die Modul-Konfiguration des eingeloggten Users zurück.
+
+    Falls noch keine Konfiguration existiert, wird sie mit Defaults angelegt (alle false).
+    Gibt zurück: { "subscription_booking_history": false, "subscription_cumulative_calculation": false }
+    Fehler: 401 wenn nicht eingeloggt.
+    """
+    return read_module_config(session, current_user.id)
+
+
+@router.patch("/module-config", response_model=UserModuleConfigRead)
+def patch_module_config(
+    payload: UserModuleConfigUpdate,
+    current_user: CurrentUser,
+    session: DatabaseSession,
+) -> UserModuleConfigRead:
+    """
+    Aktualisiert die Modul-Konfiguration des eingeloggten Users.
+
+    Nur mitgeschickte Felder (nicht None) werden geändert.
+    Beispiel: { "subscription_booking_history": true }
+    Fehler: 401 wenn nicht eingeloggt.
+    """
+    return update_module_config(session, current_user.id, payload)

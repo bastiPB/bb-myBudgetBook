@@ -50,3 +50,9 @@ export async function updateUserRole(userId: string, role: UserRole): Promise<Us
 export async function deleteUser(userId: string): Promise<void> {
   return apiFetch<void>(`/admin/users/${userId}`, { method: 'DELETE' })
 }
+
+// Scheduler manuell auslösen — erzeugt Soll-Buchungen für heute (idempotent).
+// Gibt zurück: { created: 3 } — Anzahl neu angelegter Einträge.
+export async function triggerScheduledPayments(): Promise<{ created: number }> {
+  return apiFetch<{ created: number }>('/admin/subscriptions/trigger-payments', { method: 'POST' })
+}

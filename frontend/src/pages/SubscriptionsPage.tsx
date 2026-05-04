@@ -7,10 +7,12 @@
 //   formatAmount = Betrag immer mit Komma anzeigen (deutsches Format)
 //   parseAmount  = Betragseingabe mit Komma oder Punkt akzeptieren
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 
 import {
   createSubscription,
   deleteSubscription,
+  getLogoUrl,
   getSubscriptions,
   resumeSubscription,
   suspendSubscription,
@@ -33,6 +35,25 @@ const PAGE_SIZES = [25, 50, 100] as const
 
 // Leeres Formular als Startwert — damit wir es nach dem Speichern einfach zurücksetzen können
 const EMPTY_FORM = { name: '', amount: '', next_due_date: '', interval: 'monthly' as BillingInterval }
+
+// Kleines Logo-Thumbnail für die Tabelle (28×28 px).
+// Zeigt das Bild wenn logo_url gesetzt ist, sonst den ersten Buchstaben des Namens.
+function LogoThumb({ logoUrl, name }: { logoUrl: string | null; name: string }) {
+  if (logoUrl) {
+    return (
+      <img
+        src={getLogoUrl(logoUrl)!}
+        alt=""
+        className="subs-logo-thumb"
+      />
+    )
+  }
+  return (
+    <div className="subs-logo-fallback">
+      {name.charAt(0).toUpperCase()}
+    </div>
+  )
+}
 
 // Kleines Badge das den Status eines Abos anzeigt
 function StatusBadge({ status }: { status: SubscriptionStatus }) {
@@ -309,12 +330,13 @@ export default function SubscriptionsPage() {
             <table className="subs-table">
               <thead>
                 <tr>
+                  <th></th>{/* Logo */}
                   <th>Name</th>
                   <th>Status</th>
                   <th>Betrag (€)</th>
                   <th>Intervall</th>
                   <th>Nächste Fälligkeit</th>
-                  <th></th>
+                  <th></th>{/* Aktionen */}
                 </tr>
               </thead>
               <tbody>
@@ -322,8 +344,8 @@ export default function SubscriptionsPage() {
                   // Wenn dieses Abo gerade bearbeitet wird → Edit-Zeile anzeigen
                   editingId === sub.id ? (
                     <tr key={sub.id} className="is-editing">
-                      {/* colSpan=6 weil wir jetzt 6 Spalten haben */}
-                      <td colSpan={6}>
+                      {/* colSpan=7 weil wir jetzt 7 Spalten haben (Logo + 6 bisherige) */}
+                      <td colSpan={7}>
                         <form className="subs-edit-form" onSubmit={handleUpdate}>
                           <input
                             className="subs-input"
@@ -374,7 +396,9 @@ export default function SubscriptionsPage() {
                   ) : (
                     // Normale Zeile
                     <tr key={sub.id}>
-                      <td>{sub.name}</td>
+                      <td><LogoThumb logoUrl={sub.logo_url} name={sub.name} /></td>
+                      {/* Name als Link zur Detailseite */}
+                      <td><Link className="subs-name-link" to={`/subscriptions/${sub.id}`}>{sub.name}</Link></td>
                       <td><StatusBadge status={sub.status} /></td>
                       {/* formatAmount wandelt "9.99" → "9,99" um */}
                       <td>{formatAmount(sub.amount)}</td>

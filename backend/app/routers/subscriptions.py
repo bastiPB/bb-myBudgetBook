@@ -15,12 +15,16 @@ Ein User kann immer nur seine eigenen Abos sehen und bearbeiten.
 
 import uuid
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, UploadFile, status
 
+from app.config import get_settings
 from app.dependencies import DatabaseSession, EditorOrAdminUser
 from app.schemas.subscription import (
     OverviewRead,
+    PriceHistoryEntry,
+    ScheduledPaymentRead,
     SubscriptionCreate,
+    SubscriptionDetail,
     SubscriptionRead,
     SubscriptionUpdate,
     SuspendPayload,
@@ -29,11 +33,14 @@ from app.services.subscriptions import (
     create_subscription,
     delete_subscription,
     get_overview,
-    get_subscription,
+    get_price_history,
+    get_scheduled_payments,
+    get_subscription_detail,
     list_subscriptions,
     resume_subscription,
     suspend_subscription,
     update_subscription,
+    upload_subscription_logo,
 )
 
 router = APIRouter(prefix="/subscriptions", tags=["subscriptions"])
@@ -88,22 +95,71 @@ def overview(user: EditorOrAdminUser, session: DatabaseSession) -> OverviewRead:
     )
 
 
-@router.get("/{subscription_id}", response_model=SubscriptionRead)
+@router.get("/{subscription_id}", response_model=SubscriptionDetail)
 def detail(
     subscription_id: uuid.UUID,
     user: EditorOrAdminUser,
     session: DatabaseSession,
-) -> SubscriptionRead:
+) -> SubscriptionDetail:
     """
-    Gibt ein einzelnes Abo zurück (Detailansicht).
+    Gibt ein einzelnes Abo mit Kostenkennzahlen zurück (Detailseite, Slice C).
 
-    Neu in v0.2.2 — wird von der Detailseite genutzt (Slice C).
+    Enthält zusätzlich zu SubscriptionRead:
+      - monthly_cost_normalized  (auf Monatsbasis normierter Betrag)
+      - yearly_cost_normalized   (× 12)
+      - total_paid_estimate      (Schätzung bisheriger Gesamtkosten)
+
     Fehler:
       - 404 wenn das Abo nicht gefunden wird
       - 403 wenn das Abo einem anderen User gehört
     """
-    sub = get_subscription(session, subscription_id, user.id)
-    return SubscriptionRead.model_validate(sub)
+    result = get_subscription_detail(session, subscription_id, user.id)
+    # SubscriptionRead liest die SQLAlchemy-Felder aus — dann computed fields ergänzen
+    sub_data = SubscriptionRead.model_validate(result.sub)
+    return SubscriptionDetail(
+        **sub_data.model_dump(),
+        monthly_cost_normalized=result.monthly_cost_normalized,
+        yearly_cost_normalized=result.yearly_cost_normalized,
+        total_paid_estimate=result.total_paid_estimate,
+    )
+
+
+@router.get("/{subscription_id}/price-history", response_model=list[PriceHistoryEntry])
+def price_history(
+    subscription_id: uuid.UUID,
+    user: EditorOrAdminUser,
+    session: DatabaseSession,
+) -> list[PriceHistoryEntry]:
+    """
+    Gibt die Preishistorie eines Abos zurück (Slice E).
+
+    Jeder Eintrag bedeutet "ab valid_from gilt Betrag X".
+    Einträge sind absteigend nach Datum sortiert (neuester Preis zuerst).
+    Fehler:
+      - 404 wenn das Abo nicht gefunden wird
+      - 403 wenn das Abo einem anderen User gehört
+    """
+    entries = get_price_history(session, subscription_id, user.id)
+    return [PriceHistoryEntry.model_validate(e) for e in entries]
+
+
+@router.get("/{subscription_id}/scheduled-payments", response_model=list[ScheduledPaymentRead])
+def scheduled_payments(
+    subscription_id: uuid.UUID,
+    user: EditorOrAdminUser,
+    session: DatabaseSession,
+) -> list[ScheduledPaymentRead]:
+    """
+    Gibt alle Soll-Buchungen eines Abos zurück (Slice G).
+
+    Einträge sind absteigend nach Fälligkeitsdatum sortiert (neueste zuerst).
+    Leere Liste wenn noch keine Buchungen generiert wurden oder Buchungshistorie deaktiviert ist.
+    Fehler:
+      - 404 wenn das Abo nicht gefunden wird
+      - 403 wenn das Abo einem anderen User gehört
+    """
+    entries = get_scheduled_payments(session, subscription_id, user.id)
+    return [ScheduledPaymentRead.model_validate(e) for e in entries]
 
 
 @router.post("/{subscription_id}/suspend", response_model=SubscriptionRead)
@@ -144,6 +200,41 @@ def resume(
       - 409 wenn das Abo nicht den Status 'suspended' hat
     """
     sub = resume_subscription(session, subscription_id, user.id)
+    return SubscriptionRead.model_validate(sub)
+
+
+@router.post("/{subscription_id}/logo", response_model=SubscriptionRead)
+async def upload_logo(
+    subscription_id: uuid.UUID,
+    logo: UploadFile,
+    user: EditorOrAdminUser,
+    session: DatabaseSession,
+) -> SubscriptionRead:
+    """
+    Lädt ein Logo für ein Abo hoch und speichert es auf dem Dateisystem (ADR 0010).
+
+    Erlaubte Dateitypen: JPEG, PNG, WebP. Maximum: 2 MB.
+    Das alte Logo wird automatisch gelöscht wenn vorhanden.
+    logo_url im Response enthält den relativen Pfad ("logos/<uuid>.ext") —
+    das Frontend baut daraus die vollständige URL (/api/uploads/...).
+
+    Fehler:
+      - 404 wenn das Abo nicht gefunden wird
+      - 403 wenn das Abo einem anderen User gehört
+      - 422 bei ungültigem Dateityp oder Datei zu groß
+    """
+    settings = get_settings()
+    # Dateiinhalt vollständig lesen — Validierung + Speicherung im Service
+    file_content = await logo.read()
+    sub = upload_subscription_logo(
+        session,
+        subscription_id,
+        user.id,
+        # content_type kann None sein wenn der Client keinen Header schickt
+        logo.content_type or "",
+        file_content,
+        settings.upload_dir,
+    )
     return SubscriptionRead.model_validate(sub)
 
 
