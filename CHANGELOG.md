@@ -5,27 +5,65 @@ Format based on Keep a Changelog.
 
 ## [Unreleased]
 
-### Added
-- Subscriptions v0.2.2 (Slice A/B, in progress): Lifecycle-Status fuer Abos (`active`, `suspended`, `canceled`)
-- Subscriptions v0.2.2 (Slice A/B, in progress): Suspend-Endpoint mit optionalem `access_until`
-- Subscriptions v0.2.2 (Slice A/B, in progress): neue Felder `started_on`, `notes`, `suspended_at`, `access_until`
-- Subscriptions v0.2.2 (Slice A/B, in progress): Preis-Historie-Grundlage mit erster Testabdeckung (`test_subscriptions_v022.py`)
-- Subscriptions v0.2.3 (Slice C, in progress): Detailansicht pro Abo mit `GET /subscriptions/{id}` als Datenbasis
-- Subscriptions v0.2.3 (Slice C, in progress): Kostenkarten fuer monatlich, jaehrlich und kumuliert auf der Detailseite
-- Subscriptions v0.2.3 (Slice D, in progress): Provider-Logo-Flow (Upload, Speicherung, Thumbnail in Tabelle, groessere Darstellung in Details)
-- Subscriptions v0.2.3 (Slice D, in progress): Fallback-Icon wenn kein Logo hinterlegt ist
+## [0.2.2] - 2026-05-04
 
-### Changed
-- Subscriptions v0.2.2 (Slice B, in progress): Tabellen-UX mit Suche und Seitengroessen (25/50/100)
-- Subscriptions v0.2.2 (Slice B, in progress): Betragseingabe akzeptiert Komma oder Punkt; Anzeige deutsch formatiert
-- Subscriptions v0.2.3 (Slice C, in progress): Notizen und Lifecycle-Aktionen werden aus der Tabellenansicht in die Detailansicht erweitert
+### Added
+
+**Slice A — Abo-Lifecycle**
+- Lifecycle-Status für Abos: `active`, `suspended`, `canceled`
+- Neue Felder: `started_on`, `notes`, `logo_url`, `suspended_at`, `access_until`
+- `POST /subscriptions/{id}/suspend` mit optionalem `access_until`
+- `POST /subscriptions/{id}/resume`
+
+**Slice B — Listen-UX**
+- Suche (Name-Filter), Seitengröße 25/50/100, clientseitige Paginierung
+- Status-Badge in der Abo-Tabelle
+- Betragsanzeige deutsch formatiert; Eingabe akzeptiert Komma oder Punkt
+
+**Slice C — Detailseite**
+- `GET /subscriptions/{id}` mit berechneten Kostenkennzahlen (`monthly_cost_normalized`, `yearly_cost_normalized`, `total_paid_estimate`)
+- Detailseite: Kostenkarten, Stammdaten, Notizen mit Inline-Bearbeitung, Suspend/Resume-Aktionen
+
+**Slice D — Logo-Upload**
+- `POST /subscriptions/{id}/logo`: Upload von JPEG/PNG/WebP bis 2 MB
+- StaticFiles-Mount für `/uploads` (ADR 0010: lokales Dateisystem, relativer Pfad in DB)
+- Fallback-Icon (Anfangsbuchstabe) wenn kein Logo hinterlegt
+- `uploads-data` Docker-Volume für persistente Logos über Container-Neustarts
+
+**Slice E — Preishistorie**
+- `GET /subscriptions/{id}/price-history`
+- Preishistorie-Karte auf Detailseite (neuester Eintrag hervorgehoben)
+- `total_paid_estimate` nutzt exakte Segment-Berechnung über Preishistorie statt Schätzung
+- Erster Zahlungs-Fix: +1 für die Zahlung zum Abschluss-Datum (wird nicht durch reine Monatsdifferenz erfasst)
+
+**Slice F — Buchungs-Scheduler**
+- APScheduler (BackgroundScheduler) im FastAPI-Lifespan: täglich zur konfigurierten Uhrzeit
+- Neue DB-Tabelle `subscription_scheduled_payments` (UNIQUE `subscription_id + due_date` als Idempotenz-Constraint)
+- Neue DB-Tabelle `user_module_configurations` (JSONB-Einstellungen pro User, ADR 0007)
+- Neues Feld `scheduler_time` in `app_settings` (Format `HH:MM`, default `03:00`)
+- `POST /admin/subscriptions/trigger-payments`: manueller Scheduler-Aufruf (idempotent)
+- `GET /profile/module-config` + `PATCH /profile/module-config`
+- ProfileSettingsPage: Abschnitt „Abo-Einstellungen" mit Toggles für Buchungshistorie und kumulierte Kosten
+- SettingsPage: Abschnitt „Buchungs-Scheduler" mit manueller Auslöse-Schaltfläche
+
+**Slice G — Buchungshistorie auf Detailseite**
+- `GET /subscriptions/{id}/scheduled-payments`
+- Buchungshistorie-Tabelle auf der Abo-Detailseite (nur sichtbar wenn Einträge vorhanden)
+- Status-Badges: Offen (gelb), Bezahlt (grün), Verpasst (rot)
 
 ### Fixed
-- Subscriptions v0.2.2: Resume-Flow ergaenzt (`POST /subscriptions/{id}/resume`) und `Fortsetzen`-Aktion in der Tabellenansicht fuer pausierte Abos hinzugefuegt
+- `subscription_price_history.updated_at` fehlte in der Slice-A-Migration → neue Migration `h8i9j0k1` ergänzt die Spalte mit `server_default=NOW()`
+- `total_paid_estimate` zeigte 0,00 € wenn Abo-Start und heutiges Datum im selben Monat lagen
+- Logos gingen nach Container-Neustart verloren → `uploads-data` Named Volume in `docker-compose.yml`
+- GitHub Actions CI: `PermissionError: /uploads` beim App-Import → `mkdir` + `StaticFiles`-Mount in `try/except` gewrappt
 
-### Known Gaps
-- Keine offenen Gaps fuer Resume in Slice B; weitere Lifecycle-Feinheiten folgen in Slice C/D
-- Preis-Historie-API und History-UI bleiben bewusst fuer Slice E (nach C/D)
+### Database Migrations
+- `g7h8i9j0` — v0.2.2 Slice A: `status`, `started_on`, `notes`, `logo_url`, `suspended_at`, `access_until` zu `subscriptions`; neue Tabelle `subscription_price_history`
+- `h8i9j0k1` — Slice E Fix: `updated_at` zu `subscription_price_history` nachgetragen
+- `i9j0k1l2` — Slice F: neue Tabellen `subscription_scheduled_payments` + `user_module_configurations`; Spalte `scheduler_time` in `app_settings`
+
+### ADRs
+- ADR 0010: Lokales Dateisystem für User-Uploads (relativer Pfad in DB, Migrationspfad zu Object Storage offen)
 
 ## [0.2.1] - 2026-05-03
 
