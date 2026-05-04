@@ -1,11 +1,14 @@
 // ProfileSettingsPage.tsx — Persönliche Einstellungen für jeden eingeloggten User.
 // Abschnitt 1: Anzeigename (+ Avatar-Platzhalter für v0.2.x)
 // Abschnitt 2: Module — nur Admin-freigegebene erscheinen zur Auswahl
+// Abschnitt 3: Abo-Einstellungen — Toggles für Buchungshistorie + kumulierte Kosten
 import { useEffect, useState } from 'react'
 
+import { getModuleConfig, updateModuleConfig } from '../api/moduleConfig'
 import { fetchProfileSettings, patchProfileSettings } from '../api/profile'
 import type { ProfileSettings } from '../api/profile'
 import { useModules } from '../context/useModules'
+import type { UserModuleConfig } from '../types/moduleConfig'
 import './ProfileSettingsPage.css'
 
 export default function ProfileSettingsPage() {
@@ -13,15 +16,19 @@ export default function ProfileSettingsPage() {
   const [profile, setProfile] = useState<ProfileSettings | null>(null)
   // Lokaler State für das Textfeld — wird beim Laden mit dem gespeicherten Wert befüllt
   const [displayNameInput, setDisplayNameInput] = useState('')
+  // Modul-Konfiguration (Slice F): Toggles für Buchungshistorie + kumulierte Kosten
+  const [moduleConfig, setModuleConfig] = useState<UserModuleConfig | null>(null)
   const [saving, setSaving] = useState(false)
   const [nameSaved, setNameSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    fetchProfileSettings()
-      .then(p => {
+    // Profil und Modul-Konfiguration parallel laden
+    Promise.all([fetchProfileSettings(), getModuleConfig()])
+      .then(([p, cfg]) => {
         setProfile(p)
         setDisplayNameInput(p.display_name ?? '')
+        setModuleConfig(cfg)
       })
       .catch(() => setError('Profil konnte nicht geladen werden.'))
   }, [])
@@ -40,6 +47,20 @@ export default function ProfileSettingsPage() {
       setNameSaved(true)
       // ModulesContext aktualisieren — displayName in der Onboarding-Card neu laden
       reload()
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // Toggle für Abo-Sub-Einstellungen (subscription_booking_history, subscription_cumulative_calculation)
+  async function toggleSubSetting(key: keyof UserModuleConfig, enabled: boolean) {
+    setSaving(true)
+    setError(null)
+    try {
+      const updated = await updateModuleConfig({ [key]: enabled })
+      setModuleConfig(updated)
     } catch (e) {
       setError((e as Error).message)
     } finally {
@@ -157,6 +178,63 @@ export default function ProfileSettingsPage() {
           </>
         )}
       </div>
+
+      {/* ── Abschnitt 3: Abo-Einstellungen (Slice F) ── */}
+      {moduleConfig !== null && (
+        <div className="settings-card">
+          <h2>Abo-Einstellungen</h2>
+          <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginBottom: 16 }}>
+            Diese Einstellungen gelten nur für dein Abo-Modul.
+          </p>
+
+          <table className="settings-table">
+            <thead>
+              <tr>
+                <th>Funktion</th>
+                <th>Beschreibung</th>
+                <th className="col-toggle">Aktiv</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><span className="module-name">Buchungshistorie</span></td>
+                <td>
+                  <span className="module-desc">
+                    Zeichnet tägliche Soll-Buchungen für deine Abos auf.
+                    Aktiviere dies, um später bezahlte Buchungen abzuhaken.
+                  </span>
+                </td>
+                <td className="col-toggle">
+                  <input
+                    className="settings-checkbox"
+                    type="checkbox"
+                    checked={moduleConfig.subscription_booking_history}
+                    onChange={e => toggleSubSetting('subscription_booking_history', e.target.checked)}
+                    disabled={saving}
+                  />
+                </td>
+              </tr>
+              <tr>
+                <td><span className="module-name">Kumulierte Kosten</span></td>
+                <td>
+                  <span className="module-desc">
+                    Zeigt auf der Abo-Detailseite an, wie viel du insgesamt bereits gezahlt hast.
+                  </span>
+                </td>
+                <td className="col-toggle">
+                  <input
+                    className="settings-checkbox"
+                    type="checkbox"
+                    checked={moduleConfig.subscription_cumulative_calculation}
+                    onChange={e => toggleSubSetting('subscription_cumulative_calculation', e.target.checked)}
+                    disabled={saving}
+                  />
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
 
     </div>
   )

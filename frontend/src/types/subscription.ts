@@ -95,3 +95,22 @@ export interface PriceHistoryEntry {
   amount: string       // Decimal als String, z. B. "9.99"
   valid_from: string   // ISO-Datum "YYYY-MM-DD"
 }
+
+// Status einer Soll-Buchung (Slice G)
+export type PaymentStatus = 'pending' | 'matched' | 'missed'
+
+// Soll-Buchung für ein Abo (Slice G): täglich vom Scheduler erzeugt
+export interface ScheduledPaymentEntry {
+  id: string
+  subscription_id: string
+  due_date: string       // ISO-Datum "YYYY-MM-DD"
+  amount: string         // Betrag zum Zeitpunkt der Generierung
+  status: PaymentStatus
+}
+
+// Deutsche Beschriftungen für Payment-Status
+export const PAYMENT_STATUS_LABELS: Record<PaymentStatus, string> = {
+  pending: 'Offen',
+  matched: 'Bezahlt',
+  missed:  'Verpasst',
+}

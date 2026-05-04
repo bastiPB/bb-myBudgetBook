@@ -8,9 +8,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 
-import { getLogoUrl, getPriceHistory, getSubscription, resumeSubscription, suspendSubscription, updateSubscription, uploadSubscriptionLogo } from '../api/subscriptions'
-import type { PriceHistoryEntry, SubscriptionDetail, SubscriptionStatus } from '../types/subscription'
-import { formatAmount, formatDate, INTERVAL_LABELS, STATUS_LABELS } from '../types/subscription'
+import { getLogoUrl, getPriceHistory, getScheduledPayments, getSubscription, resumeSubscription, suspendSubscription, updateSubscription, uploadSubscriptionLogo } from '../api/subscriptions'
+import type { PriceHistoryEntry, ScheduledPaymentEntry, SubscriptionDetail, SubscriptionStatus } from '../types/subscription'
+import { formatAmount, formatDate, INTERVAL_LABELS, PAYMENT_STATUS_LABELS, STATUS_LABELS } from '../types/subscription'
 // SubscriptionsPage.css enthält die gemeinsamen Button-Klassen (btn-primary-sm, btn-outline-sm etc.)
 import './SubscriptionsPage.css'
 import './SubscriptionDetailPage.css'
@@ -46,6 +46,9 @@ export default function SubscriptionDetailPage() {
   // Preishistorie (Slice E)
   const [priceHistory, setPriceHistory] = useState<PriceHistoryEntry[]>([])
 
+  // Buchungshistorie (Slice G)
+  const [scheduledPayments, setScheduledPayments] = useState<ScheduledPaymentEntry[]>([])
+
   // Logo-Upload
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [logoLoading, setLogoLoading] = useState(false)
@@ -61,11 +64,12 @@ export default function SubscriptionDetailPage() {
   // Promise.all: beide Requests laufen gleichzeitig — kürzer als nacheinander.
   useEffect(() => {
     if (!id) return
-    Promise.all([getSubscription(id), getPriceHistory(id)])
-      .then(([data, history]) => {
+    Promise.all([getSubscription(id), getPriceHistory(id), getScheduledPayments(id)])
+      .then(([data, history, payments]) => {
         setSub(data)
         setNotesValue(data.notes ?? '')
         setPriceHistory(history)
+        setScheduledPayments(payments)
       })
       .catch(err => setLoadError(err instanceof Error ? err.message : 'Ladefehler'))
   }, [id])
@@ -292,6 +296,35 @@ export default function SubscriptionDetailPage() {
           </table>
         )}
       </div>
+
+      {/* Buchungshistorie (Slice G) — nur anzeigen wenn Einträge vorhanden */}
+      {scheduledPayments.length > 0 && (
+        <div className="detail-card">
+          <h2 className="detail-section-title">Buchungshistorie</h2>
+          <table className="detail-ph-table">
+            <thead>
+              <tr>
+                <th>Fälligkeit</th>
+                <th>Betrag</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {scheduledPayments.map(entry => (
+                <tr key={entry.id} className={`detail-payment-${entry.status}`}>
+                  <td>{formatDate(entry.due_date)}</td>
+                  <td>{formatAmount(entry.amount)} €</td>
+                  <td>
+                    <span className={`detail-payment-badge detail-payment-badge--${entry.status}`}>
+                      {PAYMENT_STATUS_LABELS[entry.status]}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* Aktionen */}
       <div className="detail-actions">

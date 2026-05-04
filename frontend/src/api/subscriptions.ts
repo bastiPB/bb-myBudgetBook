@@ -2,6 +2,7 @@
 import type {
   OverviewRead,
   PriceHistoryEntry,
+  ScheduledPaymentEntry,
   SubscriptionCreate,
   SubscriptionDetail,
   SubscriptionRead,
@@ -80,6 +81,12 @@ export async function deleteSubscription(id: string): Promise<void> {
 // Preishistorie eines Abos laden (Slice E) — neuester Eintrag zuerst.
 export async function getPriceHistory(id: string): Promise<PriceHistoryEntry[]> {
   return apiFetch<PriceHistoryEntry[]>(`/subscriptions/${id}/price-history`)
+}
+
+// Soll-Buchungen eines Abos laden (Slice G) — neueste Buchung zuerst.
+// Leere Liste wenn Buchungshistorie nicht aktiviert oder Scheduler noch nicht gelaufen.
+export async function getScheduledPayments(id: string): Promise<ScheduledPaymentEntry[]> {
+  return apiFetch<ScheduledPaymentEntry[]>(`/subscriptions/${id}/scheduled-payments`)
 }
 
 // Baut die vollständige URL zu einem Logo aus dem relativen Pfad der DB.

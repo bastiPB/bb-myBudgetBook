@@ -375,6 +375,30 @@
   margin: 0;
 }
 
+/* ── Buchungshistorie Status-Badge (Slice G) ── */
+.detail-payment-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.detail-payment-badge--pending {
+  background: #fff3cd;
+  color: #856404;
+}
+
+.detail-payment-badge--matched {
+  background: #d1e7dd;
+  color: #0a6640;
+}
+
+.detail-payment-badge--missed {
+  background: #f8d7da;
+  color: #842029;
+}
+
 /* ── Ladezustand & Fehler ── */
 .detail-loading,
 .detail-load-error {
