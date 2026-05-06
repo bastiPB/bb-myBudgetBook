@@ -8,6 +8,7 @@ Pydantic prüft automatisch ob die Daten das richtige Format haben.
 import uuid
 from datetime import date
 from decimal import Decimal
+from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
@@ -41,20 +42,21 @@ class SubscriptionCreate(BaseModel):
     {
       "name": "Netflix",
       "amount": 9.99,
-      "next_due_date": "2026-06-01",
       "interval": "monthly",
       "started_on": "2026-01-01",  (optional — default: heute)
       "notes": "..."               (optional)
     }
 
+    Hinweis: next_due_date wird in v0.2.3 serverseitig berechnet — nicht mehr im Body.
     amount: JSON-Number oder String — Strings mit Komma ("9,99") werden normalisiert.
     """
 
     name: str
     amount: Decimal
-    next_due_date: date
+    # Interval: monthly/quarterly/semiannual/yearly/biennial
     interval: BillingInterval = BillingInterval.monthly
-    # Abschlussdatum: optional, default wird im Service auf heute gesetzt
+    # Abschlussdatum: optional, default wird im Service auf heute gesetzt.
+    # Darf in der Zukunft liegen — z.B. Abo vorausbuchen (L-04 aufgehoben).
     started_on: date | None = None
     notes: str | None = None
 
@@ -64,61 +66,20 @@ class SubscriptionCreate(BaseModel):
         """Normalisiert Komma → Punkt damit Pydantic auf Decimal parsen kann."""
         return _normalize_amount(v)
 
-    @field_validator("started_on", mode="before")
-    @classmethod
-    def started_on_not_in_future(cls, v: object) -> object:
-        """
-        Validiert, dass das Abschlussdatum nicht in der Zukunft liegt.
-        Das macht fachlich keinen Sinn — man kann kein Abo "in der Zukunft" abgeschlossen haben.
-
-        Warum String-Handling nötig?
-        Der Validator läuft mit mode='before', also bevor Pydantic den Wert zu date coerced.
-        JSON liefert Datumsfelder immer als String ("2026-01-01").
-        Würden wir nur isinstance(v, date) prüfen, käme ein String-Zukunftsdatum ungeprüft durch.
-        """
-        if v is None:
-            return v
-
-        # Rohwert in ein date-Objekt umwandeln um vergleichen zu können.
-        # date-Objekt: direkt verwenden (z. B. aus internen Aufrufen oder Tests)
-        # str:         ISO-Format parsen ("2026-01-01") — so kommt es aus JSON
-        # Anderer Typ: unverändert zurückgeben, Pydantic wirft selbst einen Fehler
-        check: date | None = None
-        if isinstance(v, date):
-            check = v
-        elif isinstance(v, str):
-            try:
-                check = date.fromisoformat(v)
-            except ValueError:
-                return v  # Ungültiges Format — Pydantic meldet den Fehler
-
-        if check is not None and check > date.today():
-            raise ValueError("Abschlussdatum darf nicht in der Zukunft liegen.")
-        return v
-
 
 class SubscriptionUpdate(BaseModel):
     """
     Eingabe-Schema für das Bearbeiten eines Abos (PATCH).
 
     Alle Felder sind optional — es muss nur das mitgeschickt werden, was sich ändert.
-    Beispiel: nur den Betrag ändern: { "amount": 12.99 } oder { "amount": "12,99" }
 
-    Hinweis: Wenn amount sich ändert, schreibt der Service automatisch einen
-    Eintrag in subscription_price_history (kein API-Endpoint nötig).
+    Hinweis: amount ist hier nicht mehr enthalten. Preisänderungen laufen über
+    den eigenen Endpoint POST /subscriptions/{id}/price-change (v0.2.3 / RD-05).
     """
 
     name: str | None = None
-    amount: Decimal | None = None
-    next_due_date: date | None = None
     interval: BillingInterval | None = None
     notes: str | None = None
-
-    @field_validator("amount", mode="before")
-    @classmethod
-    def normalize_amount(cls, v: object) -> object:
-        """Normalisiert Komma → Punkt damit Pydantic auf Decimal parsen kann."""
-        return _normalize_amount(v)
 
 
 class SuspendPayload(BaseModel):
@@ -135,9 +96,11 @@ class SuspendPayload(BaseModel):
 
 class SubscriptionRead(BaseModel):
     """
-    Ausgabe-Schema für ein Abo.
+    Ausgabe-Schema für ein Abo in der Listenansicht.
 
     from_attributes=True erlaubt Pydantic, direkt aus einem SQLAlchemy-Objekt zu lesen.
+    next_due_date wird nicht in der DB gespeichert — der Service berechnet es aus
+    started_on + N × interval und setzt es vor der Rückgabe.
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -145,35 +108,32 @@ class SubscriptionRead(BaseModel):
     id: uuid.UUID
     name: str
     amount: Decimal
-    next_due_date: date
+    # Nicht in der DB — wird im Service via compute_next_due_date() befüllt
+    next_due_date: date | None = None
     interval: BillingInterval
-    # v0.2.2: neue Felder
     status: SubscriptionStatus
     started_on: date
     notes: str | None
     logo_url: str | None
-    suspended_at: date | None
-    access_until: date | None
 
 
 class SubscriptionDetail(SubscriptionRead):
     """
-    Ausgabe-Schema für die Detailseite eines Abos (Slice C).
+    Ausgabe-Schema für die Detailseite eines Abos (v0.2.3).
 
-    Erweitert SubscriptionRead um berechnete Kostenkennzahlen.
+    Erweitert SubscriptionRead um vier berechnete Kostenkennzahlen.
     Diese Felder stehen nicht in der DB — der Service berechnet sie beim Abruf.
 
-    monthly_cost_normalized: Betrag auf Monatsbasis normiert
-                             (z. B. 89,90 € jährlich → 7,49 € monatlich)
-    yearly_cost_normalized:  monthly × 12
-    total_paid_estimate:     Schätzung der bisherigen Gesamtkosten
-                             (volle Abrechnungsperioden seit started_on × Betrag)
-                             Ignoriert Preisänderungen — exakte Werte folgen in Slice E.
+    monatlich:             Betrag auf Monatsbasis normiert (z.B. 89,90 € jährlich → 7,49 €)
+    tatsaechlich:          Summe aller tatsächlich gezahlten Perioden (Pausen ausgenommen)
+    intervalle:            Anzahl nicht-pausierter Zahlungsperioden seit Abo-Beginn
+    dieses_kalenderjahr:   Summe aller Perioden im aktuellen Jahr (inkl. angekündigter Preise)
     """
 
-    monthly_cost_normalized: Decimal
-    yearly_cost_normalized: Decimal
-    total_paid_estimate: Decimal
+    monatlich: Decimal
+    tatsaechlich: Decimal
+    intervalle: int
+    dieses_kalenderjahr: Decimal
 
 
 class OverviewRead(BaseModel):
@@ -181,7 +141,7 @@ class OverviewRead(BaseModel):
     Ausgabe-Schema für die Übersicht.
 
     monthly_total: Summe aller aktiven Abo-Beträge, auf Monatsbasis normiert.
-                   (z.B. 89.90 € jährlich → 7.49 € monatlich)
+                   Abos mit started_on in der Zukunft zählen nicht dazu (L-09).
                    Suspended/canceled Abos zählen nicht mehr dazu.
     upcoming:      Aktive Abos, die in den nächsten 30 Tagen fällig sind.
     """
@@ -207,12 +167,48 @@ class PriceHistoryEntry(BaseModel):
     valid_from: date
 
 
+class PriceChangeRequest(BaseModel):
+    """
+    Eingabe-Schema für POST /subscriptions/{id}/price-change (v0.2.3).
+
+    Erlaubt Preisänderungen in der Vergangenheit, heute oder Zukunft:
+    - Vergangenheit: korrigiert historische Berechnung von tatsaechlich
+    - Zukunft:       zeigt Ankündigungs-Badge in der UI (Vorschau-Charakter)
+    """
+
+    amount: Decimal
+    # Ab welchem Datum gilt der neue Preis? ISO-Format: "2026-10-01"
+    valid_from: date
+
+    @field_validator("amount", mode="before")
+    @classmethod
+    def normalize_amount(cls, v: object) -> object:
+        """Normalisiert Komma → Punkt damit Pydantic auf Decimal parsen kann."""
+        return _normalize_amount(v)
+
+
+class PauseHistoryEntry(BaseModel):
+    """
+    Ausgabe-Schema für einen Pause-Eintrag (v0.2.3).
+
+    Jeder Eintrag steht für eine Pause-Episode des Abos.
+    resumed_at ist None solange das Abo noch pausiert ist.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    paused_at: date
+    resumed_at: date | None
+    access_until: date | None
+
+
 class ScheduledPaymentRead(BaseModel):
     """
     Ausgabe-Schema für eine geplante Buchung (Slice F).
 
-    Wird vom Scheduler täglich erzeugt — je ein Eintrag pro Abo und Fälligkeitstag.
-    status: pending (noch nicht abgeglichen), matched (bezahlt erkannt), missed (verfallen)
+    Wird vom Scheduler erzeugt — je ein Eintrag pro Abo und Fälligkeitstag.
+    status: pending (ausstehend), paused (Abo war pausiert), matched (bezahlt), missed (verfallen)
+    amount: None wenn paused (kein Betrag fällig in Pausenzeitraum)
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -220,5 +216,5 @@ class ScheduledPaymentRead(BaseModel):
     id: uuid.UUID
     subscription_id: uuid.UUID
     due_date: date
-    amount: Decimal
+    amount: Optional[Decimal]
     status: PaymentStatus

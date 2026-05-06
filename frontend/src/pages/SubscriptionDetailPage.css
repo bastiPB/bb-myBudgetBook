@@ -166,15 +166,21 @@
   border-color: #3a3a3a;
 }
 
-/* ── Kostenkarten ── */
+/* ── Kostenkarten (v0.2.3: 4 Karten) ── */
 .detail-cost-cards {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 16px;
   margin-bottom: 24px;
 }
 
-@media (max-width: 540px) {
+@media (max-width: 640px) {
+  .detail-cost-cards {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 400px) {
   .detail-cost-cards {
     grid-template-columns: 1fr;
   }
@@ -209,6 +215,25 @@
   font-size: 11px;
   color: var(--color-text-muted);
   font-style: italic;
+}
+
+/* ── Ankündigungs-Badge für zukünftige Preisänderungen ── */
+.detail-price-announcement {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  background: #fff3cd;
+  color: #856404;
+  border: 1px solid #ffe49a;
+  white-space: nowrap;
+}
+
+[data-theme="dark"] .detail-price-announcement {
+  background: #2e2200;
+  color: #f4d03f;
+  border-color: #5a4000;
 }
 
 /* ── Karten (Stammdaten, Notizen) ── */
@@ -375,6 +400,31 @@
   margin: 0;
 }
 
+/* ── Karten-Header mit Titel + Button nebeneinander ── */
+.detail-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+/* Wenn section-header da ist, braucht der Titel keinen eigenen Abstand mehr */
+.detail-section-header .detail-section-title {
+  margin-bottom: 0;
+}
+
+/* ── Preisänderungs-Formular ── */
+.detail-price-form {
+  margin-top: 4px;
+}
+
+.detail-price-form-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
 /* ── Buchungshistorie Status-Badge (Slice G) ── */
 .detail-payment-badge {
   display: inline-block;
@@ -397,6 +447,11 @@
 .detail-payment-badge--missed {
   background: #f8d7da;
   color: #842029;
+}
+
+.detail-payment-badge--paused {
+  background: #f2f3f4;
+  color: #5d6d7e;
 }
 
 /* ── Ladezustand & Fehler ── */

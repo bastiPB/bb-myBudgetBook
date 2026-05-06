@@ -1,6 +1,7 @@
 // Alle API-Aufrufe rund um Abos.
 import type {
   OverviewRead,
+  PriceChangeRequest,
   PriceHistoryEntry,
   ScheduledPaymentEntry,
   SubscriptionCreate,
@@ -71,6 +72,21 @@ export async function suspendSubscription(id: string, payload: SuspendPayload): 
 // Pausiertes Abo wieder fortsetzen — setzt Status zurück auf active.
 export async function resumeSubscription(id: string): Promise<SubscriptionRead> {
   return apiFetch<SubscriptionRead>(`/subscriptions/${id}/resume`, { method: 'POST' })
+}
+
+// Preisänderung eintragen — valid_from darf Vergangenheit, heute oder Zukunft sein.
+// Gibt aktualisiertes SubscriptionDetail zurück (inkl. neuer Kennzahlen).
+export async function priceChange(id: string, payload: PriceChangeRequest): Promise<SubscriptionDetail> {
+  return apiFetch<SubscriptionDetail>(`/subscriptions/${id}/price-change`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+// Abo endgültig kündigen — Status wird auf 'canceled' gesetzt.
+// Gibt aktualisiertes SubscriptionDetail zurück.
+export async function cancelSubscription(id: string): Promise<SubscriptionDetail> {
+  return apiFetch<SubscriptionDetail>(`/subscriptions/${id}/cancel`, { method: 'POST' })
 }
 
 // Abo löschen (Hard Delete).

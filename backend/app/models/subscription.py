@@ -15,10 +15,11 @@ class BillingInterval(str, enum.Enum):
     str + Enum kombiniert = Werte sind normale Strings ("monthly", "yearly", ...),
     was die Speicherung in der DB und JSON-Serialisierung vereinfacht.
     """
-    monthly = "monthly"      # monatlich
-    quarterly = "quarterly"  # vierteljährlich
-    yearly = "yearly"        # jährlich
-    biennial = "biennial"    # alle 2 Jahre
+    monthly    = "monthly"     # monatlich
+    quarterly  = "quarterly"   # vierteljährlich
+    semiannual = "semiannual"  # halbjährlich — v0.2.3
+    yearly     = "yearly"      # jährlich
+    biennial   = "biennial"    # alle 2 Jahre
 
 
 class SubscriptionStatus(str, enum.Enum):
@@ -41,7 +42,6 @@ class Subscription(BaseModel):
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     name: Mapped[str] = mapped_column(String(255))
     amount: Mapped[Decimal] = mapped_column(Numeric(10, 2))
-    next_due_date: Mapped[date] = mapped_column(Date)
 
     # Abrechnungsintervall — bestimmt wie der Betrag auf Monatsbasis umgerechnet wird
     interval: Mapped[BillingInterval] = mapped_column(
@@ -68,21 +68,20 @@ class Subscription(BaseModel):
     # Pfad oder URL zum Provider-Logo — wird in Slice D befüllt
     logo_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
-    # Wann wurde das Abo auf suspended/canceled gesetzt?
-    suspended_at: Mapped[date | None] = mapped_column(Date, nullable=True)
-
-    # Bis wann ist die Leistung noch nutzbar? (z.B. Ende des bezahlten Monats)
-    access_until: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # suspended_at und access_until entfernt in v0.2.3 — stehen jetzt in subscription_pause_history.
+    # next_due_date entfernt in v0.2.3 — wird serverseitig aus started_on + N × interval berechnet.
 
 
 class PaymentStatus(str, enum.Enum):
     """
     Status einer geplanten Buchung (scheduled payment).
     pending = generiert, aber noch nicht bezahlt/geprüft
+    paused  = Abo war in diesem Zeitraum pausiert — kein Betrag fällig (v0.2.3)
     matched = als bezahlt erkannt (Slice G)
     missed  = Fälligkeitsdatum überschritten ohne Match (Slice G)
     """
     pending = "pending"
+    paused  = "paused"
     matched = "matched"
     missed  = "missed"
 
@@ -106,8 +105,9 @@ class SubscriptionScheduledPayment(BaseModel):
     # Fälligkeitsdatum dieser Buchung — zusammen mit subscription_id einzigartig (Idempotenz)
     due_date: Mapped[date] = mapped_column(Date, nullable=False)
 
-    # Betrag zum Zeitpunkt der Generierung — wird von der aktuellen amount übernommen
-    amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    # Betrag zum Zeitpunkt der Generierung.
+    # Bei pausierten Perioden gibt es keinen zahlbaren Betrag (NULL).
+    amount: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
 
     # Status: startet immer als "pending"
     status: Mapped[PaymentStatus] = mapped_column(
@@ -120,6 +120,34 @@ class SubscriptionScheduledPayment(BaseModel):
     __table_args__ = (
         UniqueConstraint("subscription_id", "due_date", name="uq_scheduled_payment"),
     )
+
+
+class SubscriptionPauseHistory(BaseModel):
+    """
+    Protokolliert jede Pause-Episode eines Abos (v0.2.3).
+
+    Jeder Eintrag steht für einen Zeitraum, in dem das Abo pausiert oder gekündigt war.
+    Durch mehrere Einträge können Abos beliebig oft pausiert und reaktiviert werden.
+
+    paused_at:   Datum, an dem die Pause begann
+    resumed_at:  Datum der Reaktivierung — None solange noch pausiert
+    access_until: Bis wann Zugriff besteht — None wenn sofort eingestellt
+    """
+    __tablename__ = "subscription_pause_history"
+
+    # Welches Abo? Bei Löschung des Abos fallen alle Pause-Einträge automatisch mit.
+    subscription_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("subscriptions.id", ondelete="CASCADE"), index=True
+    )
+
+    # Startdatum der Pause
+    paused_at: Mapped[date] = mapped_column(Date, nullable=False)
+
+    # Enddatum der Pause — None solange das Abo noch pausiert ist
+    resumed_at: Mapped[date | None] = mapped_column(Date, nullable=True)
+
+    # Optionaler letzter Zugriffstag (z.B. Ende des bezahlten Monats)
+    access_until: Mapped[date | None] = mapped_column(Date, nullable=True)
 
 
 class SubscriptionPriceHistory(BaseModel):

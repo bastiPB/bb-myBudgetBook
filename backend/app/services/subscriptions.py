@@ -6,28 +6,56 @@ Alle Funktionen prüfen: darf dieser User dieses Abo sehen / ändern?
 """
 
 import uuid
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
 
+from dateutil.relativedelta import relativedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.exceptions import ForbiddenError, InvalidFileError, InvalidSubscriptionStatusError, SubscriptionNotFoundError
-from app.models.subscription import BillingInterval, Subscription, SubscriptionPriceHistory, SubscriptionScheduledPayment, SubscriptionStatus
-from app.schemas.subscription import SubscriptionCreate, SubscriptionUpdate, SuspendPayload
+from app.models.subscription import (
+    BillingInterval,
+    Subscription,
+    SubscriptionPauseHistory,
+    SubscriptionPriceHistory,
+    SubscriptionScheduledPayment,
+    SubscriptionStatus,
+)
+from app.schemas.subscription import (
+    PriceChangeRequest,
+    SubscriptionRead,
+    SubscriptionCreate,
+    SubscriptionDetail,
+    SubscriptionUpdate,
+    SuspendPayload,
+)
 
 # Umrechnungsfaktoren: wie viel eines Abo-Betrags fällt pro Monat an?
-# monthly   → voller Betrag pro Monat
-# quarterly → Betrag geteilt durch 3 (Quartal = 3 Monate)
-# yearly    → Betrag geteilt durch 12
-# biennial  → Betrag geteilt durch 24 (2 Jahre = 24 Monate)
+# monthly    → voller Betrag pro Monat
+# quarterly  → Betrag geteilt durch 3 (Quartal = 3 Monate)
+# semiannual → Betrag geteilt durch 6 (Halbjahr = 6 Monate)
+# yearly     → Betrag geteilt durch 12
+# biennial   → Betrag geteilt durch 24 (2 Jahre = 24 Monate)
 _MONTHLY_FACTOR: dict[BillingInterval, Decimal] = {
-    BillingInterval.monthly:   Decimal("1"),
-    BillingInterval.quarterly: Decimal("1") / Decimal("3"),
-    BillingInterval.yearly:    Decimal("1") / Decimal("12"),
-    BillingInterval.biennial:  Decimal("1") / Decimal("24"),
+    BillingInterval.monthly:    Decimal("1"),
+    BillingInterval.quarterly:  Decimal("1") / Decimal("3"),
+    BillingInterval.semiannual: Decimal("1") / Decimal("6"),
+    BillingInterval.yearly:     Decimal("1") / Decimal("12"),
+    BillingInterval.biennial:   Decimal("1") / Decimal("24"),
+}
+
+# Wie viele Monate stecken in einer Abrechnungsperiode?
+# Wird von den Berechnungsalgorithmen genutzt um Fälligkeitsdaten zu ermitteln.
+_MONTHS_PER_PERIOD: dict[BillingInterval, int] = {
+    BillingInterval.monthly:    1,
+    BillingInterval.quarterly:  3,
+    BillingInterval.semiannual: 6,
+    BillingInterval.yearly:     12,
+    BillingInterval.biennial:   24,
 }
 
 
@@ -53,20 +81,34 @@ def _check_ownership(sub: Subscription, user_id: uuid.UUID) -> None:
         raise ForbiddenError()
 
 
+def subscription_to_read(sub: Subscription) -> SubscriptionRead:
+    """
+    Konvertiert ein Subscription-ORM-Objekt in SubscriptionRead mit berechnetem next_due_date.
+
+    next_due_date ist keine DB-Spalte — ohne diese Hilfsfunktion bleibt das Feld
+    immer None, weil model_validate() nur echte ORM-Attribute liest (BUG-01).
+    """
+    read = SubscriptionRead.model_validate(sub)
+    # Frisch berechnen damit die UI immer den aktuellen nächsten Fälligkeitstag sieht
+    read.next_due_date = compute_next_due_date(sub.started_on, _MONTHS_PER_PERIOD[sub.interval])
+    return read
+
+
 def list_subscriptions(session: Session, user_id: uuid.UUID) -> list[Subscription]:
     """
     Gibt alle Abos des eingeloggten Users zurück, sortiert nach Fälligkeitsdatum.
 
     Gibt alle Status zurück (active, suspended, canceled) — die UI kann filtern.
-    Wichtig: die WHERE-Klausel stellt sicher, dass ein User niemals Abos
-    anderer User sehen kann — auch wenn er eine fremde ID kennt.
+    Sortierung: in Python via compute_next_due_date, weil next_due_date nicht mehr
+    als Spalte existiert (v0.2.3 / BUG-01 — Datum wird immer frisch berechnet).
     """
-    stmt = (
-        select(Subscription)
-        .where(Subscription.user_id == user_id)
-        .order_by(Subscription.next_due_date)
+    stmt = select(Subscription).where(Subscription.user_id == user_id)
+    subs = list(session.execute(stmt).scalars().all())
+    # Nach berechnetem Fälligkeitsdatum sortieren — nächste Fälligkeit zuerst
+    return sorted(
+        subs,
+        key=lambda s: compute_next_due_date(s.started_on, _MONTHS_PER_PERIOD[s.interval]),
     )
-    return list(session.execute(stmt).scalars().all())
 
 
 @dataclass
@@ -81,25 +123,45 @@ def get_overview(session: Session, user_id: uuid.UUID) -> OverviewResult:
     """
     Berechnet die monatliche Gesamtsumme und die nächsten fälligen Abos.
 
-    monthly_total: Summe aller aktiven Abo-Beträge (suspended/canceled zählen nicht mehr).
-    upcoming:      Aktive Abos, deren next_due_date innerhalb der nächsten 30 Tage liegt.
+    monthly_total: Summe aller aktiven Abo-Beträge, auf Monatsbasis normiert.
+                   Abos mit started_on in der Zukunft zählen nicht (L-09).
+    upcoming:      Aktive Abos, die in den nächsten 30 Tagen fällig werden.
     """
     subs = list_subscriptions(session, user_id)
+    today = date.today()
 
-    # Nur aktive Abos in die Berechnung einbeziehen — suspendierte kosten nichts mehr
-    active_subs = [s for s in subs if s.status == SubscriptionStatus.active]
+    # Aktive Abos die bereits gestartet sind — Zukunfts-Abos fließen nicht in die Summe (L-09)
+    active_subs = [
+        s for s in subs
+        if s.status == SubscriptionStatus.active and s.started_on <= today
+    ]
 
-    # Jeden Betrag auf Monatsbasis umrechnen und aufaddieren.
-    # Beispiel: 89.90 € jährlich → 89.90 / 12 = 7.49 € monatlich
+    # Preishistorie für alle aktiven Abos auf einmal laden.
+    # Ohne Bulk-Load wäre es N+1 — eine DB-Abfrage pro Abo.
+    active_ids = [s.id for s in active_subs]
+    all_price_entries = session.execute(
+        select(SubscriptionPriceHistory)
+        .where(SubscriptionPriceHistory.subscription_id.in_(active_ids))
+    ).scalars().all()
+    price_hist_by_sub: dict[uuid.UUID, list] = defaultdict(list)
+    for p in all_price_entries:
+        price_hist_by_sub[p.subscription_id].append(p)
+
+    # Aktuell gültigen Preis aus Preishistorie ableiten — nicht s.amount.
+    # s.amount kann stale sein wenn eine angekündigte Preisänderung wirksam wurde.
     monthly_total = sum(
-        (s.amount * _MONTHLY_FACTOR[s.interval] for s in active_subs),
+        (applicable_price(today, price_hist_by_sub[s.id]) * _MONTHLY_FACTOR[s.interval]
+         for s in active_subs),
         Decimal("0"),
     )
 
-    # Abos filtern: nur aktive, die in den nächsten 30 Tagen fällig werden
-    today = date.today()
+    # Upcoming: aktive Abos, deren nächster Fälligkeitstag in den nächsten 30 Tagen liegt.
+    # next_due_date wird jetzt berechnet (BUG-01) — nicht mehr aus der DB gelesen.
     cutoff = today + timedelta(days=30)
-    upcoming = [s for s in active_subs if today <= s.next_due_date <= cutoff]
+    upcoming = [
+        s for s in active_subs
+        if today <= compute_next_due_date(s.started_on, _MONTHS_PER_PERIOD[s.interval]) <= cutoff
+    ]
 
     return OverviewResult(monthly_total=monthly_total, upcoming=upcoming)
 
@@ -117,155 +179,203 @@ def get_subscription(session: Session, subscription_id: uuid.UUID, user_id: uuid
     return sub
 
 
-@dataclass
-class SubscriptionDetailResult:
-    """Zwischenergebnis für den Detail-Endpunkt — kein HTTP, nur Daten."""
+def compute_due_dates(started_on: date, period_months: int, up_to: date) -> list[date]:
+    """
+    Gibt alle Fälligkeitsdaten von started_on bis up_to zurück (up_to inklusiv).
 
-    sub: Subscription
-    monthly_cost_normalized: Decimal
-    yearly_cost_normalized: Decimal
-    total_paid_estimate: Decimal
+    Schlüssel-Eigenschaft: immer von started_on aus rechnen, nie iterativ.
+    started_on + relativedelta(months=n * period_months) verhindert Ankertag-Drift.
+
+    Beispiel: started_on=31.1., monthly
+      n=0 → 31.1. | n=1 → 28.2. | n=2 → 31.3. | n=3 → 30.4.
+    Der 31. wird für Feb auf 28 geklemmt, aber für März wieder auf 31 erholt.
+    """
+    dates, n = [], 0
+    while True:
+        d = started_on + relativedelta(months=n * period_months)
+        if d > up_to:
+            break
+        dates.append(d)
+        n += 1
+    return dates
 
 
-def _compute_total_paid_estimate(
-    amount: Decimal,
-    interval: BillingInterval,
+def compute_next_due_date(started_on: date, period_months: int) -> date:
+    """
+    Gibt den nächsten Fälligkeitstag >= heute zurück.
+
+    Immer von started_on aus berechnen — kein Zustand, kein Drift.
+    Kann für vergangene Abos viele Iterationen brauchen, bleibt aber korrekt.
+    """
+    today = date.today()
+    n = 0
+    while True:
+        d = started_on + relativedelta(months=n * period_months)
+        if d >= today:
+            return d
+        n += 1
+
+
+def is_in_pause(due_date: date, pause_history: list) -> bool:
+    """
+    Prüft ob ein Fälligkeitsdatum in einem Pause-Intervall liegt.
+
+    Ein Pause-Intervall geht von paused_at bis resumed_at (beide inklusiv).
+    resumed_at=None bedeutet: Pause noch aktiv → alle Daten ab paused_at sind pausiert.
+    """
+    return any(
+        p.paused_at <= due_date and (p.resumed_at is None or due_date <= p.resumed_at)
+        for p in pause_history
+    )
+
+
+def applicable_price(due_date: date, price_history: list, include_future: bool = False) -> Decimal:
+    """
+    Gibt den zum Fälligkeitstag geltenden Preis zurück.
+
+    include_future=False (Standard, "Tatsächlich"):
+      Nur Preiseinträge bis heute werden berücksichtigt.
+      Angekündigte Preise (valid_from > heute) bleiben unsichtbar.
+
+    include_future=True ("Dieses Kalenderjahr"):
+      Auch zukünftige Preiseinträge fließen ein — Vorschau-Charakter.
+    """
+    today = date.today()
+    # Nur Einträge die bis zum Fälligkeitstag bereits galten
+    candidates = [p for p in price_history if p.valid_from <= due_date]
+    if not include_future:
+        # Zusätzlich: nur Vergangenheitspreise (keine Ankündigungen)
+        candidates = [p for p in candidates if p.valid_from <= today]
+    if not candidates:
+        return Decimal("0")
+    # Letzter Eintrag vor due_date ist der aktuelle Preis
+    return max(candidates, key=lambda p: p.valid_from).amount
+
+
+def compute_tatsaechlich(
     started_on: date,
+    period_months: int,
+    price_history: list,
+    pause_history: list,
 ) -> Decimal:
     """
-    Schätzt den bisher gezahlten Gesamtbetrag seit Abschluss.
+    Berechnet die tatsächlich entstandenen Kosten seit Abo-Beginn.
 
-    Fallback-Funktion für den Fall dass keine Preishistorie vorhanden ist.
-    Die exakte Berechnung mit echter Preishistorie erledigt _compute_total_paid_exact.
-
-    Warum Monats-Arithmetik statt Tage?
-    Tagesbasiert wäre ungenau (Monatslängen variieren).
-    Monatsbasiert mit ganzzahligem floor ist einfach und intuitiv nachvollziehbar.
+    Zählt alle nicht-pausierten Perioden bis heute und multipliziert
+    jede mit dem damals gültigen Preis. Fixiert BUG-02 und BUG-04:
+    - kein Segment-Mathe mit Monatsdifferenzen
+    - Startperiode zählt immer (auch wenn Abo heute angelegt wurde)
     """
     today = date.today()
-    if started_on > today:
-        return Decimal("0")
-
-    # Wie viele Monate sind seit started_on vergangen? (abgerundet)
-    months_elapsed = (today.year - started_on.year) * 12 + (today.month - started_on.month)
-
-    # Wie viele volle Abrechnungsperioden stecken in diesen Monaten?
-    months_per_period: dict[BillingInterval, int] = {
-        BillingInterval.monthly:   1,
-        BillingInterval.quarterly: 3,
-        BillingInterval.yearly:    12,
-        BillingInterval.biennial:  24,
-    }
-    # +1: die erste Zahlung am started_on zählt immer, auch wenn noch keine volle
-    # Periode vergangen ist. Ohne +1 würde ein frisch angelegtes Abo 0,00 € zeigen.
-    full_periods = months_elapsed // months_per_period[interval] + 1
-
-    return (amount * Decimal(full_periods)).quantize(Decimal("0.01"))
-
-
-def _compute_total_paid_exact(
-    history: list[SubscriptionPriceHistory],
-    interval: BillingInterval,
-) -> Decimal:
-    """
-    Berechnet den bisherigen Gesamtbetrag exakt anhand der Preishistorie (Slice E).
-
-    Für jedes Preis-Segment (von valid_from bis zum nächsten Eintrag oder heute)
-    werden die vollen Abrechnungsperioden gezählt und mit dem Betrag multipliziert.
-
-    Beispiel (monatlich):
-      {9.99, Jan} → {12.99, März} → {14.99, Mai}
-      Jan–Feb: 2 Monate // 1 = 2 Perioden × 9.99  = 19.98
-      März–Apr: 2 Monate // 1 = 2 Perioden × 12.99 = 25.98
-      Mai: 0 Monate // 1 = 0 Perioden × 14.99 = 0.00  (laufende Periode)
-      Gesamt: 45.96
-
-    Warum Monate statt Tage?
-    Konsistent mit _compute_total_paid_estimate — gleiche Arithmetik, gleiche Intuition.
-    """
-    if not history:
-        return Decimal("0")
-
-    # Aufsteigend nach valid_from sortieren → ältester Eintrag zuerst
-    sorted_history = sorted(history, key=lambda e: e.valid_from)
-    today = date.today()
-
-    months_per_period: dict[BillingInterval, int] = {
-        BillingInterval.monthly:   1,
-        BillingInterval.quarterly: 3,
-        BillingInterval.yearly:    12,
-        BillingInterval.biennial:  24,
-    }
-    period_months = months_per_period[interval]
-
     total = Decimal("0")
-    for i, entry in enumerate(sorted_history):
-        segment_start = entry.valid_from
-        is_last = (i + 1 >= len(sorted_history))
-        # Ende des Segments: entweder der nächste Preiseintrag oder heute
-        segment_end = sorted_history[i + 1].valid_from if not is_last else today
-
-        if segment_end <= segment_start:
+    for due in compute_due_dates(started_on, period_months, today):
+        if is_in_pause(due, pause_history):
             continue
+        total += applicable_price(due, price_history, include_future=False)
+    return total
 
-        # Monate in diesem Segment (ganzzahlig — Tagesanteil wird ignoriert)
-        months = (
-            (segment_end.year - segment_start.year) * 12
-            + (segment_end.month - segment_start.month)
-        )
-        full_periods = months // period_months
 
-        # Letztes Segment: +1 für die Zahlung die am segment_start (= Startdatum oder
-        # Preisänderungsdatum) bereits stattgefunden hat.
-        # Ohne +1: Abo gestartet am 3.5., heute 4.5. → 0 Monate → 0 Zahlungen (falsch).
-        # Mit +1: 0 Monate + 1 = 1 Zahlung (korrekt — man zahlt beim Abschluss sofort).
-        if is_last:
-            full_periods += 1
+def compute_intervalle(
+    started_on: date,
+    period_months: int,
+    pause_history: list,
+) -> int:
+    """
+    Gibt die Anzahl nicht-pausierter Zahlungsperioden seit Abo-Beginn zurück.
 
-        total += entry.amount * Decimal(full_periods)
+    Entspricht "wie oft hat der User dieses Abo bereits bezahlt".
+    """
+    today = date.today()
+    return sum(
+        1 for due in compute_due_dates(started_on, period_months, today)
+        if not is_in_pause(due, pause_history)
+    )
 
-    return total.quantize(Decimal("0.01"))
+
+def compute_dieses_kalenderjahr(
+    started_on: date,
+    period_months: int,
+    price_history: list,
+    pause_history: list,
+) -> Decimal:
+    """
+    Berechnet die Abo-Kosten im laufenden Kalenderjahr (1.1. bis 31.12.).
+
+    Vergangene Perioden: tatsächliche Preise.
+    Zukünftige Perioden: angekündigte Preise eingerechnet (Projektion).
+    Pausierte Perioden: werden übersprungen.
+
+    Vorschau-Charakter: gibt einen Jahresbudget-Orientierungswert, der
+    auch Preisankündigungen berücksichtigt die noch nicht wirksam sind.
+    """
+    today = date.today()
+    jan_1 = date(today.year, 1, 1)
+    dez_31 = date(today.year, 12, 31)
+    total = Decimal("0")
+    for due in compute_due_dates(started_on, period_months, dez_31):
+        # Perioden vor dem 1. Januar dieses Jahres überspringen
+        if due < jan_1:
+            continue
+        if is_in_pause(due, pause_history):
+            continue
+        # include_future=True: Preisankündigungen als Projektion einrechnen
+        total += applicable_price(due, price_history, include_future=True)
+    return total
 
 
 def get_subscription_detail(
     session: Session,
     subscription_id: uuid.UUID,
     user_id: uuid.UUID,
-) -> SubscriptionDetailResult:
+) -> SubscriptionDetail:
     """
-    Gibt ein Abo mit berechneten Kostenkennzahlen zurück (Slice C/E).
+    Gibt ein Abo mit allen berechneten Kostenkennzahlen zurück (v0.2.3).
 
-    total_paid_estimate wird ab Slice E exakt via Preishistorie berechnet.
-    Ist keine Historie vorhanden (Altdaten vor v0.2.2), greift der Schätzwert.
+    Alle vier Kennzahlen (monatlich, tatsaechlich, intervalle, dieses_kalenderjahr)
+    werden frisch aus Preis- und Pausenhistorie berechnet — keine Werte aus der DB.
     Wirft SubscriptionNotFoundError wenn das Abo nicht existiert.
     Wirft ForbiddenError wenn das Abo einem anderen User gehört.
     """
     sub = _get_subscription_or_raise(session, subscription_id)
     _check_ownership(sub, user_id)
 
-    # Monatlichen Normwert berechnen (gleiche Logik wie in get_overview)
-    monthly = sub.amount * _MONTHLY_FACTOR[sub.interval]
+    period_months = _MONTHS_PER_PERIOD[sub.interval]
 
-    # Preishistorie laden — ab v0.2.2 immer vorhanden (initialer Eintrag in create_subscription)
-    history_stmt = (
+    # Preishistorie laden — aufsteigend damit applicable_price korrekt arbeitet
+    price_hist = list(session.execute(
         select(SubscriptionPriceHistory)
         .where(SubscriptionPriceHistory.subscription_id == subscription_id)
         .order_by(SubscriptionPriceHistory.valid_from)
-    )
-    history = list(session.execute(history_stmt).scalars().all())
+    ).scalars().all())
 
-    # Exakte Berechnung wenn Historie vorhanden, sonst Schätzung als Fallback
-    if history:
-        total = _compute_total_paid_exact(history, sub.interval)
-    else:
-        total = _compute_total_paid_estimate(sub.amount, sub.interval, sub.started_on)
+    # Pausenhistorie laden — alle Pausen dieses Abos
+    pause_hist = list(session.execute(
+        select(SubscriptionPauseHistory)
+        .where(SubscriptionPauseHistory.subscription_id == subscription_id)
+    ).scalars().all())
 
-    return SubscriptionDetailResult(
-        sub=sub,
-        monthly_cost_normalized=monthly.quantize(Decimal("0.01")),
-        yearly_cost_normalized=(monthly * Decimal("12")).quantize(Decimal("0.01")),
-        total_paid_estimate=total,
-    )
+    # Alle vier Kennzahlen berechnen (Algorithmen aus Chunk 3)
+    today = date.today()
+    # Aktuell gültiger Preis aus Preishistorie — nicht sub.amount (stale nach Preisankündigung)
+    current_price = applicable_price(today, price_hist)
+    monatlich = (current_price * _MONTHLY_FACTOR[sub.interval]).quantize(Decimal("0.01"))
+    tatsaechlich = compute_tatsaechlich(sub.started_on, period_months, price_hist, pause_hist)
+    intervalle = compute_intervalle(sub.started_on, period_months, pause_hist)
+    dieses_kj = compute_dieses_kalenderjahr(sub.started_on, period_months, price_hist, pause_hist)
+    next_due = compute_next_due_date(sub.started_on, period_months)
+
+    # Erst Basisfelder aus dem ORM lesen, dann berechnete Pflichtfelder ergänzen
+    # und als komplettes Payload gegen SubscriptionDetail validieren.
+    detail_payload = SubscriptionRead.model_validate(
+        sub, from_attributes=True
+    ).model_dump()
+    detail_payload["next_due_date"] = next_due
+    detail_payload["monatlich"] = monatlich
+    detail_payload["tatsaechlich"] = tatsaechlich
+    detail_payload["intervalle"] = intervalle
+    detail_payload["dieses_kalenderjahr"] = dieses_kj
+
+    return SubscriptionDetail.model_validate(detail_payload)
 
 
 def get_price_history(
@@ -334,11 +444,10 @@ def create_subscription(
         user_id=user_id,
         name=payload.name,
         amount=payload.amount,
-        next_due_date=payload.next_due_date,
         interval=payload.interval,
         started_on=started_on,
         notes=payload.notes,
-        # status, logo_url, suspended_at, access_until — SQLAlchemy-Defaults greifen
+        # status, logo_url — SQLAlchemy-Defaults greifen
     )
     session.add(sub)
     session.flush()  # flush statt commit: sub.id ist jetzt verfügbar, Transaktion noch offen
@@ -373,19 +482,16 @@ def _record_price_change(
 
     Wird von zwei Stellen gerufen:
     - create_subscription: initialer Eintrag mit valid_from = started_on
-    - update_subscription: Änderungseintrag mit valid_from = heute (Standard)
+    - price_change:        Eintrag mit frei wählbarem valid_from (Vergangenheit/Zukunft)
 
     Warum valid_from als Parameter?
-    Beim Anlegen eines Abos soll der Startpreis ab dem Abschlussdatum (started_on) gelten,
-    nicht ab dem heutigen Tag — sonst klafft eine Lücke in der Zeitleiste für rückwirkende Abos.
+    Beim Anlegen soll der Startpreis ab started_on gelten, nicht ab heute.
+    Beim price_change-Endpoint wählt der User selbst wann der neue Preis gilt.
 
     Semantik der Tabelle (valid_from-only-Design):
     Jeder Eintrag bedeutet „ab diesem Datum gilt Preis X".
     Aufeinanderfolgende Einträge bilden eine lückenlose Zeitleiste:
       {9.99, 2026-01-01} → {12.99, 2026-03-01} → {14.99, 2026-05-01}
-    Slice E kann daraus den kumulierten Betrag korrekt berechnen.
-
-    Kein API-Endpoint in v0.2.2 — die Daten laufen still mit.
     """
     entry = SubscriptionPriceHistory(
         subscription_id=sub.id,
@@ -403,22 +509,17 @@ def update_subscription(
     payload: SubscriptionUpdate,
 ) -> Subscription:
     """
-    Aktualisiert ein bestehendes Abo.
+    Aktualisiert Name, Intervall oder Notizen eines Abos (PATCH).
 
     Nur Felder die im Request-Body standen (payload.model_fields_set) werden geändert.
-    Wenn sich amount ändert, wird ein Eintrag in subscription_price_history geschrieben.
-    notes kann damit auch explizit auf null gesetzt werden ({ "notes": null }).
+    notes kann explizit auf null gesetzt werden ({ "notes": null }).
+
+    Hinweis: Preisänderungen laufen über price_change() — nicht mehr über diesen Endpoint.
     Wirft SubscriptionNotFoundError wenn das Abo nicht existiert.
     Wirft ForbiddenError wenn das Abo einem anderen User gehört.
     """
     sub = _get_subscription_or_raise(session, subscription_id)
     _check_ownership(sub, user_id)
-
-    # Wenn amount sich ändert: neuen Preis ab heute in der Preishistorie festhalten.
-    # Semantik: jeder Eintrag sagt "ab valid_from gilt Preis X" — so entsteht eine Zeitleiste.
-    # Wir prüfen: payload.amount ist gesetzt UND unterscheidet sich vom aktuellen Wert.
-    if payload.amount is not None and payload.amount != sub.amount:
-        _record_price_change(session, sub, payload.amount)
 
     # Nur die Felder aktualisieren, die der User tatsächlich mitgeschickt hat.
     #
@@ -427,7 +528,6 @@ def update_subscription(
     #   - "nicht mitgeschickt" (Feld fehlt im JSON)  → soll nichts ändern
     #   - "explizit null"       ({ "notes": null })   → soll Feld leeren
     # model_fields_set enthält nur die Felder, die im Request-Body standen.
-    # Damit kann man "nicht gesendet" und "auf null setzen" sauber unterscheiden.
     for field in payload.model_fields_set:
         setattr(sub, field, getattr(payload, field))
 
@@ -443,27 +543,31 @@ def suspend_subscription(
     payload: SuspendPayload,
 ) -> Subscription:
     """
-    Setzt ein Abo auf 'suspended'.
+    Setzt ein Abo auf 'suspended' und schreibt einen Pause-Eintrag.
 
     Soft-Lifecycle: das Abo bleibt in der DB — keine Daten gehen verloren.
     Nur aktive Abos können suspendiert werden (409 wenn bereits suspended/canceled).
-
-    suspended_at: wird auf heute gesetzt
-    access_until: optional — bis wann ist die Leistung noch nutzbar?
+    Der Pause-Eintrag ermöglicht mehrfaches Pausieren und Resumieren (v0.2.3).
     """
     sub = _get_subscription_or_raise(session, subscription_id)
     _check_ownership(sub, user_id)
 
-    # Nur aktive Abos können suspendiert werden
     if sub.status != SubscriptionStatus.active:
         raise InvalidSubscriptionStatusError(
             f"Nur aktive Abos können suspendiert werden. Aktueller Status: {sub.status.value}"
         )
 
-    # Status-Wechsel durchführen
+    today = date.today()
     sub.status = SubscriptionStatus.suspended
-    sub.suspended_at = date.today()
-    sub.access_until = payload.access_until  # kann None sein — ist OK
+
+    # Pause-Episode in subscription_pause_history festhalten.
+    # resumed_at=None bedeutet: Pause noch aktiv (wird beim Resume gesetzt).
+    pause = SubscriptionPauseHistory(
+        subscription_id=sub.id,
+        paused_at=today,
+        access_until=payload.access_until,
+    )
+    session.add(pause)
 
     session.commit()
     session.refresh(sub)
@@ -479,25 +583,103 @@ def resume_subscription(
     Setzt ein suspendiertes Abo wieder auf 'active'.
 
     Nur suspended darf zurück auf active — active oder canceled ergeben keinen Sinn.
-    suspended_at und access_until werden beim Resume geleert.
+    Der letzte offene Pause-Eintrag (resumed_at IS NULL) wird auf heute geschlossen.
     """
     sub = _get_subscription_or_raise(session, subscription_id)
     _check_ownership(sub, user_id)
 
-    # Nur suspendierte Abos können fortgesetzt werden
     if sub.status != SubscriptionStatus.suspended:
         raise InvalidSubscriptionStatusError(
             f"Nur pausierte Abos können fortgesetzt werden. Aktueller Status: {sub.status.value}"
         )
 
+    # Letzten noch offenen Pause-Eintrag suchen und schließen.
+    # "Offen" bedeutet: resumed_at ist noch NULL.
+    open_pause = session.execute(
+        select(SubscriptionPauseHistory)
+        .where(
+            SubscriptionPauseHistory.subscription_id == sub.id,
+            SubscriptionPauseHistory.resumed_at.is_(None),
+        )
+        .order_by(SubscriptionPauseHistory.paused_at.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+
+    if open_pause:
+        open_pause.resumed_at = date.today()
+
     sub.status = SubscriptionStatus.active
-    # Suspend-Felder zurücksetzen — das Abo läuft wieder normal
-    sub.suspended_at = None
-    sub.access_until = None
 
     session.commit()
     session.refresh(sub)
     return sub
+
+
+def cancel_subscription(
+    session: Session,
+    subscription_id: uuid.UUID,
+    user_id: uuid.UUID,
+    payload: SuspendPayload | None = None,
+) -> SubscriptionDetail:
+    """
+    Kündigt ein Abo endgültig (status = 'canceled').
+
+    Im Gegensatz zu suspend ist canceled final — ein Resumieren ist nicht vorgesehen.
+    Ein Pause-Eintrag wird geschrieben damit die Buchungshistorie sauber endet
+    (Scheduler erzeugt ab canceled keine weiteren Einträge mehr).
+    access_until aus dem Payload: optional — bis wann ist die Leistung noch nutzbar?
+    """
+    sub = _get_subscription_or_raise(session, subscription_id)
+    _check_ownership(sub, user_id)
+
+    # Bereits gekündigt? — doppelte Kündigung sinnlos
+    if sub.status == SubscriptionStatus.canceled:
+        raise InvalidSubscriptionStatusError("Das Abo ist bereits gekündigt.")
+
+    today = date.today()
+    sub.status = SubscriptionStatus.canceled
+
+    # Pause-Eintrag schreiben — markiert den Endpunkt in der Buchungshistorie.
+    # paused_at = Kündigungsdatum, resumed_at = None (endgültig).
+    pause = SubscriptionPauseHistory(
+        subscription_id=sub.id,
+        paused_at=today,
+        access_until=payload.access_until if payload is not None else None,
+    )
+    session.add(pause)
+
+    session.commit()
+    return get_subscription_detail(session, subscription_id, user_id)
+
+
+def price_change(
+    session: Session,
+    user_id: uuid.UUID,
+    subscription_id: uuid.UUID,
+    payload: PriceChangeRequest,
+) -> SubscriptionDetail:
+    """
+    Trägt eine Preisänderung mit frei wählbarem Gültigkeitsdatum ein (v0.2.3).
+
+    valid_from darf in der Vergangenheit (Korrektur), heute oder Zukunft (Ankündigung) liegen.
+    Schreibt einen Eintrag in subscription_price_history und aktualisiert sub.amount
+    wenn valid_from <= heute (der neue Preis ist bereits wirksam).
+    Gibt die vollständige SubscriptionDetail mit neu berechneten Kennzahlen zurück.
+    """
+    sub = _get_subscription_or_raise(session, subscription_id)
+    _check_ownership(sub, user_id)
+
+    # Preishistorie-Eintrag schreiben — mit dem vom User gewählten Datum
+    _record_price_change(session, sub, payload.amount, valid_from=payload.valid_from)
+
+    # Wenn der neue Preis bereits gilt (valid_from <= heute): sub.amount aktualisieren.
+    # So bleibt amount immer der aktuell gültige Preis.
+    if payload.valid_from <= date.today():
+        sub.amount = payload.amount
+
+    session.commit()
+    # Detail mit aktualisierten Kennzahlen zurückgeben
+    return get_subscription_detail(session, subscription_id, user_id)
 
 
 # Erlaubte Bild-Typen für Logo-Uploads (ADR 0010)

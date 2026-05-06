@@ -6,14 +6,32 @@ Sie wird von APScheduler in main.py aufgerufen oder manuell per Admin-Endpoint g
 """
 
 import uuid
-from datetime import date
+from collections import defaultdict
+from datetime import date, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.subscription import PaymentStatus, Subscription, SubscriptionScheduledPayment
+from app.models.subscription import (
+    PaymentStatus,
+    Subscription,
+    SubscriptionPauseHistory,
+    SubscriptionPriceHistory,
+    SubscriptionScheduledPayment,
+    SubscriptionStatus,
+)
 from app.models.user_module_configurations import UserModuleConfiguration
 from app.schemas.module_config import UserModuleConfigRead, UserModuleConfigUpdate
+from app.services.subscriptions import (
+    _MONTHS_PER_PERIOD,
+    applicable_price,
+    compute_due_dates,
+    is_in_pause,
+)
+
+# Wie viele Tage rückwirkend werden verpasste Fälligkeiten nachgefüllt?
+# 60 Tage = zwei Monate Puffer, z.B. nach längerem Server-Ausfall.
+CATCH_UP_DAYS = 60
 
 
 def get_or_create_module_config(session: Session, user_id: uuid.UUID) -> UserModuleConfiguration:
@@ -88,20 +106,29 @@ def update_module_config(
 
 def generate_scheduled_payments(session: Session) -> int:
     """
-    Erzeugt tägliche Soll-Buchungen für alle aktiven Abos mit aktivierter Buchungshistorie.
+    Erzeugt Soll-Buchungen für alle aktiven und suspendierten Abos mit Buchungshistorie.
+
+    Neu in v0.2.3 gegenüber v0.2.2:
+    - Period-basiert: due_date = berechneter Fälligkeitstag (nicht mehr date.today())
+    - Catch-up: Fälligkeiten bis 60 Tage rückwirkend werden nachgefüllt
+    - suspended → paused-Einträge (kein Betrag, Status "paused")
+    - canceled → gar keine Einträge (Tabelle endet sauber)
+    - N+1 eliminiert: Pause-History per Bulk für alle Abos geladen
 
     Gibt die Anzahl der neu erzeugten Einträge zurück.
 
     Warum Idempotenz?
     Der Scheduler kann täglich mehrfach laufen (Restart, Retry).
-    Wir prüfen zuerst im Code, ob der Eintrag schon existiert (erster Schutz).
+    Wir prüfen im Code, ob der Eintrag schon existiert (erster Schutz).
     Der UNIQUE-Constraint (subscription_id, due_date) in der DB ist die zweite Verteidigungslinie.
     """
     today = date.today()
+    # Frühester Fälligkeitstag, der noch berücksichtigt wird (60-Tage-Fenster)
+    cutoff = today - timedelta(days=CATCH_UP_DAYS)
     created_count = 0
 
     # Alle User-IDs ermitteln, die subscription_booking_history aktiviert haben.
-    # Wir laden alle Konfigurationen und filtern in Python — die Tabelle ist klein.
+    # Die Konfigurationstabelle ist klein — Python-Filter ist ausreichend.
     all_configs = session.execute(select(UserModuleConfiguration)).scalars().all()
     enabled_user_ids = {
         cfg.user_id
@@ -113,37 +140,82 @@ def generate_scheduled_payments(session: Session) -> int:
         # Kein User hat Buchungshistorie aktiviert — nichts zu tun
         return 0
 
-    # Alle aktiven Abos dieser User laden
-    active_subscriptions = session.execute(
+    # Alle nicht-canceled Abos dieser User laden (active + suspended).
+    # canceled Abos bekommen keine neuen Einträge — die Tabelle endet dort sauber.
+    subscriptions = session.execute(
         select(Subscription).where(
             Subscription.user_id.in_(enabled_user_ids),
-            Subscription.status == "active",
+            Subscription.status != SubscriptionStatus.canceled,
         )
     ).scalars().all()
 
-    for sub in active_subscriptions:
-        # Prüfen ob für heute bereits ein Eintrag existiert (erster Idempotenz-Schutz)
-        existing = session.execute(
-            select(SubscriptionScheduledPayment).where(
-                SubscriptionScheduledPayment.subscription_id == sub.id,
-                SubscriptionScheduledPayment.due_date == today,
-            )
-        ).scalar_one_or_none()
-
-        if existing is not None:
-            # Eintrag existiert schon — überspringen
-            continue
-
-        # Neuen Eintrag anlegen: Betrag zum jetzigen Zeitpunkt (snapshot)
-        payment = SubscriptionScheduledPayment(
-            id=uuid.uuid4(),
-            subscription_id=sub.id,
-            due_date=today,
-            amount=sub.amount,
-            status=PaymentStatus.pending,
+    # Pause-History für alle betroffenen Abos auf einmal laden.
+    # Warum Bulk-Load? Sonst wäre es N+1: eine DB-Abfrage pro Abo.
+    # defaultdict(list) gibt für unbekannte sub_ids automatisch [] zurück.
+    sub_ids = [s.id for s in subscriptions]
+    all_pauses = session.execute(
+        select(SubscriptionPauseHistory).where(
+            SubscriptionPauseHistory.subscription_id.in_(sub_ids)
         )
-        session.add(payment)
-        created_count += 1
+    ).scalars().all()
+    pauses_by_sub: dict[uuid.UUID, list] = defaultdict(list)
+    for p in all_pauses:
+        pauses_by_sub[p.subscription_id].append(p)
+
+    # Preishistorie für alle Abos auf einmal laden — analog zu Pause-History.
+    # Wird pro Fälligkeitstag gebraucht um den damals gültigen Preis zu ermitteln.
+    all_prices = session.execute(
+        select(SubscriptionPriceHistory).where(
+            SubscriptionPriceHistory.subscription_id.in_(sub_ids)
+        )
+    ).scalars().all()
+    prices_by_sub: dict[uuid.UUID, list] = defaultdict(list)
+    for p in all_prices:
+        prices_by_sub[p.subscription_id].append(p)
+
+    for sub in subscriptions:
+        # Periodenlänge in Monaten (monthly=1, quarterly=3, semiannual=6, ...)
+        period_months = _MONTHS_PER_PERIOD[sub.interval]
+        # Pause- und Preiseinträge für dieses Abo (leere Liste wenn keine vorhanden)
+        pause_hist = pauses_by_sub[sub.id]
+        price_hist = prices_by_sub[sub.id]
+
+        # Alle Fälligkeitsdaten vom Abo-Beginn bis heute berechnen
+        for due in compute_due_dates(sub.started_on, period_months, today):
+            # Catch-up-Fenster: verpasste Daten die zu weit zurückliegen überspringen
+            if due < cutoff:
+                continue
+
+            # Existiert Eintrag schon? (erster Idempotenz-Schutz)
+            existing = session.execute(
+                select(SubscriptionScheduledPayment).where(
+                    SubscriptionScheduledPayment.subscription_id == sub.id,
+                    SubscriptionScheduledPayment.due_date == due,
+                )
+            ).scalar_one_or_none()
+            if existing:
+                # Eintrag existiert bereits — überspringen
+                continue
+
+            if is_in_pause(due, pause_hist):
+                # Fälligkeitstag liegt in einer Pause-Episode:
+                # Status = paused, kein Betrag fällig
+                status = PaymentStatus.paused
+                amount = None
+            else:
+                # Betrag aus Preishistorie für diesen Fälligkeitstag — nicht sub.amount.
+                # sub.amount kann stale sein wenn eine Preisankündigung wirksam wurde.
+                status = PaymentStatus.pending
+                amount = applicable_price(due, price_hist)
+
+            session.add(SubscriptionScheduledPayment(
+                id=uuid.uuid4(),
+                subscription_id=sub.id,
+                due_date=due,
+                amount=amount,
+                status=status,
+            ))
+            created_count += 1
 
     if created_count > 0:
         session.commit()

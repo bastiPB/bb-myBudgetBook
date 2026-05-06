@@ -21,6 +21,7 @@ from app.config import get_settings
 from app.dependencies import DatabaseSession, EditorOrAdminUser
 from app.schemas.subscription import (
     OverviewRead,
+    PriceChangeRequest,
     PriceHistoryEntry,
     ScheduledPaymentRead,
     SubscriptionCreate,
@@ -30,6 +31,7 @@ from app.schemas.subscription import (
     SuspendPayload,
 )
 from app.services.subscriptions import (
+    cancel_subscription,
     create_subscription,
     delete_subscription,
     get_overview,
@@ -37,7 +39,9 @@ from app.services.subscriptions import (
     get_scheduled_payments,
     get_subscription_detail,
     list_subscriptions,
+    price_change,
     resume_subscription,
+    subscription_to_read,
     suspend_subscription,
     update_subscription,
     upload_subscription_logo,
@@ -55,7 +59,7 @@ def get_subscriptions(user: EditorOrAdminUser, session: DatabaseSession) -> list
     Enthält alle Status (active, suspended, canceled).
     """
     subs = list_subscriptions(session, user.id)
-    return [SubscriptionRead.model_validate(s) for s in subs]
+    return [subscription_to_read(s) for s in subs]
 
 
 @router.post("", response_model=SubscriptionRead, status_code=status.HTTP_201_CREATED)
@@ -68,11 +72,12 @@ def create(
     Legt ein neues Abo für den eingeloggten User an.
 
     Erwartet als JSON:
-    { "name": "Netflix", "amount": 9.99, "next_due_date": "2026-06-01" }
+    { "name": "Netflix", "amount": 9.99, "interval": "monthly", "started_on": "2026-06-01" }
     Gibt HTTP 201 Created zurück (= "erfolgreich angelegt").
+    next_due_date wird serverseitig berechnet — nicht mehr im Body mitschicken.
     """
     sub = create_subscription(session, user.id, payload)
-    return SubscriptionRead.model_validate(sub)
+    return subscription_to_read(sub)
 
 
 @router.get("/overview", response_model=OverviewRead)
@@ -91,7 +96,7 @@ def overview(user: EditorOrAdminUser, session: DatabaseSession) -> OverviewRead:
     result = get_overview(session, user.id)
     return OverviewRead(
         monthly_total=result.monthly_total,
-        upcoming=[SubscriptionRead.model_validate(s) for s in result.upcoming],
+        upcoming=[subscription_to_read(s) for s in result.upcoming],
     )
 
 
@@ -102,26 +107,20 @@ def detail(
     session: DatabaseSession,
 ) -> SubscriptionDetail:
     """
-    Gibt ein einzelnes Abo mit Kostenkennzahlen zurück (Detailseite, Slice C).
+    Gibt ein einzelnes Abo mit berechneten Kostenkennzahlen zurück (Detailseite, v0.2.3).
 
     Enthält zusätzlich zu SubscriptionRead:
-      - monthly_cost_normalized  (auf Monatsbasis normierter Betrag)
-      - yearly_cost_normalized   (× 12)
-      - total_paid_estimate      (Schätzung bisheriger Gesamtkosten)
+      - monatlich          (auf Monatsbasis normierter Betrag)
+      - tatsaechlich       (Summe aller tatsächlich gezahlten Perioden)
+      - intervalle         (Anzahl Zahlungsperioden seit Abschluss)
+      - dieses_kalenderjahr (Jahreskosten inkl. Preisankündigungen)
 
     Fehler:
       - 404 wenn das Abo nicht gefunden wird
       - 403 wenn das Abo einem anderen User gehört
     """
-    result = get_subscription_detail(session, subscription_id, user.id)
-    # SubscriptionRead liest die SQLAlchemy-Felder aus — dann computed fields ergänzen
-    sub_data = SubscriptionRead.model_validate(result.sub)
-    return SubscriptionDetail(
-        **sub_data.model_dump(),
-        monthly_cost_normalized=result.monthly_cost_normalized,
-        yearly_cost_normalized=result.yearly_cost_normalized,
-        total_paid_estimate=result.total_paid_estimate,
-    )
+    # get_subscription_detail gibt bereits ein fertiges SubscriptionDetail zurück
+    return get_subscription_detail(session, subscription_id, user.id)
 
 
 @router.get("/{subscription_id}/price-history", response_model=list[PriceHistoryEntry])
@@ -181,7 +180,7 @@ def suspend(
       - 409 wenn das Abo bereits suspended oder canceled ist
     """
     sub = suspend_subscription(session, subscription_id, user.id, payload)
-    return SubscriptionRead.model_validate(sub)
+    return subscription_to_read(sub)
 
 
 @router.post("/{subscription_id}/resume", response_model=SubscriptionRead)
@@ -200,7 +199,7 @@ def resume(
       - 409 wenn das Abo nicht den Status 'suspended' hat
     """
     sub = resume_subscription(session, subscription_id, user.id)
-    return SubscriptionRead.model_validate(sub)
+    return subscription_to_read(sub)
 
 
 @router.post("/{subscription_id}/logo", response_model=SubscriptionRead)
@@ -235,7 +234,7 @@ async def upload_logo(
         file_content,
         settings.upload_dir,
     )
-    return SubscriptionRead.model_validate(sub)
+    return subscription_to_read(sub)
 
 
 @router.patch("/{subscription_id}", response_model=SubscriptionRead)
@@ -246,16 +245,64 @@ def update(
     session: DatabaseSession,
 ) -> SubscriptionRead:
     """
-    Bearbeitet ein bestehendes Abo.
+    Bearbeitet Name, Intervall oder Notizen eines Abos.
 
     Es müssen nur die Felder mitgeschickt werden, die sich ändern sollen.
-    Wenn amount sich ändert, wird automatisch ein Eintrag in price_history geschrieben.
+    Hinweis: amount ist hier nicht mehr änderbar (v0.2.3).
+    Preisänderungen laufen über POST /subscriptions/{id}/price-change.
     Fehler:
       - 404 wenn das Abo nicht gefunden wird
       - 403 wenn das Abo einem anderen User gehört
     """
     sub = update_subscription(session, subscription_id, user.id, payload)
-    return SubscriptionRead.model_validate(sub)
+    return subscription_to_read(sub)
+
+
+@router.post("/{subscription_id}/price-change", response_model=SubscriptionDetail)
+def price_change_endpoint(
+    subscription_id: uuid.UUID,
+    payload: PriceChangeRequest,
+    user: EditorOrAdminUser,
+    session: DatabaseSession,
+) -> SubscriptionDetail:
+    """
+    Trägt eine Preisänderung ein (v0.2.3).
+
+    valid_from kann in der Vergangenheit, heute oder Zukunft liegen:
+    - Vergangenheit: korrigiert historische Berechnung von "Tatsächlich"
+    - Heute:         sofortige Preisänderung
+    - Zukunft:       Ankündigung — Badge in der Detailansicht, fließt in "Dieses Jahr" ein
+
+    Erwartet als JSON:
+    { "amount": 12.99, "valid_from": "2026-10-01" }
+
+    Fehler:
+      - 404 wenn das Abo nicht gefunden wird
+      - 403 wenn das Abo einem anderen User gehört
+    """
+    return price_change(session, user.id, subscription_id, payload)
+
+
+@router.post("/{subscription_id}/cancel", response_model=SubscriptionDetail)
+def cancel_endpoint(
+    subscription_id: uuid.UUID,
+    user: EditorOrAdminUser,
+    session: DatabaseSession,
+    payload: SuspendPayload | None = None,
+) -> SubscriptionDetail:
+    """
+    Kündigt ein Abo endgültig (v0.2.3).
+
+    Setzt Status auf 'canceled' und schreibt einen Pause-Eintrag in die Historie.
+    Das Abo bleibt in der DB erhalten — keine Daten gehen verloren.
+    Canceled Abos erhalten keine Soll-Buchungen mehr vom Scheduler.
+
+    Fehler:
+      - 404 wenn das Abo nicht gefunden wird
+      - 403 wenn das Abo einem anderen User gehört
+      - 409 wenn das Abo bereits canceled ist
+    """
+    return cancel_subscription(session, subscription_id, user.id, payload)
 
 
 @router.delete("/{subscription_id}", status_code=status.HTTP_204_NO_CONTENT)
