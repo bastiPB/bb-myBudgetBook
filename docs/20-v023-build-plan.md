@@ -858,3 +858,67 @@ wird jetzt der Preis verwendet, der am jeweiligen Fälligkeitstag galt — nicht
 **Geänderte Dateien:**
 - `backend/app/services/subscriptions.py` — `defaultdict` importiert, `get_overview` + `get_subscription_detail` geändert
 - `backend/app/services/scheduler_service.py` — `SubscriptionPriceHistory` + `applicable_price` importiert, Bulk-Load ergänzt, `sub.amount` ersetzt
+
+---
+
+### BUG-07 — Datum „Nächste Fälligkeit" im englischen ISO-Format (2026-05-06)
+
+**Problem:**
+In der Übersichtstabelle (`SubscriptionsPage`) wurde `sub.next_due_date` direkt als String
+gerendert: `{sub.next_due_date ?? '—'}`. Da der Server ISO-Datum (`2026-05-15`) liefert
+und `formatDate()` nicht aufgerufen wurde, erschien die Spalte auf Englisch.
+
+**Fix:**
+`formatDate` in `SubscriptionsPage.tsx` importiert und angewendet:
+`{sub.next_due_date ? formatDate(sub.next_due_date) : '—'}`
+
+**Geänderte Dateien:**
+- `frontend/src/pages/SubscriptionsPage.tsx` — Import + Anwendung von `formatDate`
+
+---
+
+### Preishistorie-Verwaltung: Duplikat-Block + Löschen-Funktion (2026-05-06)
+
+**Hintergrund:**
+Analyse ergab, dass `price_change()` immer einen neuen Eintrag anhängt und
+`applicable_price()` bei zwei Einträgen mit demselben `valid_from` nicht-deterministisch
+den Gewinner wählt (Python `max()` ohne Tiebreaker). Gleichzeitig gab es keine Möglichkeit,
+einen falsch eingetragenen Preiseintrag zu korrigieren oder zu löschen.
+
+**Lösung — Duplikat-Block:**
+`price_change()` prüft vor dem Insert ob ein Eintrag mit gleichem `(subscription_id, valid_from)`
+bereits existiert. Wenn ja → `DuplicatePriceEntryError` (HTTP 409) mit klarer Meldung.
+Kein stilles Überschreiben — der User muss den Eintrag erst löschen oder bearbeiten.
+
+**Lösung — Löschen-Endpoint:**
+`DELETE /subscriptions/{id}/price-history/{entry_id}` mit zwei Sicherheitsstufen:
+
+1. Letzter Eintrag → 409 „mindestens ein Preis muss erhalten bleiben"
+2. Buchungen im betroffenen Zeitfenster → 409 mit Erklärung
+
+Präzise Fensterprüfung: Nur Buchungen im Bereich `[entry.valid_from, nächster_eintrag.valid_from)`
+werden geprüft. So kann eine falsche Zukunfts-Ankündigung (kein Buchungseintrag vorhanden)
+gelöscht werden, auch wenn spätere Preiseinträge mit Buchungen existieren.
+
+Nach dem Löschen wird `sub.amount` über `applicable_price(today, remaining)` neu gesetzt.
+
+**Icebox — Bearbeiten vergangener Preiseinträge mit Buchungen:**
+Bewusst nicht implementiert. Wenn Buchungen existieren, ist ein harter Block die sicherste
+Option. Ggf. später als `?confirm=true`-Mechanismus mit expliziter User-Bestätigung — erst
+wenn aus dem Testen klar wird ob das ein echter Pain Point ist.
+
+**Frontend:**
+- Neue Komponente `InfoModal.tsx` — Info/Fehler-Overlay mit OK-Button, nutzt ConfirmModal-CSS
+- Preishistorie-Tabelle: neue Spalte mit Papierkorb-Icon pro Zeile
+  - Client-seitig disabled wenn nur ein Eintrag vorhanden
+  - Klick öffnet Bestätigungs-Modal (`ConfirmModal`) mit Datum und Betrag
+  - API-Fehler (409) werden im `InfoModal`-Overlay angezeigt
+
+**Geänderte Dateien:**
+- `backend/app/exceptions.py` — `DuplicatePriceEntryError`, `PriceHistoryEntryNotFoundError`, `PriceEntryDeleteBlockedError`
+- `backend/app/services/subscriptions.py` — Duplikat-Check in `price_change()`, neue Funktion `delete_price_history_entry()`
+- `backend/app/routers/subscriptions.py` — neuer Endpoint `DELETE /{id}/price-history/{entry_id}`
+- `frontend/src/api/subscriptions.ts` — `deletePriceHistoryEntry()`
+- `frontend/src/components/InfoModal.tsx` — neue Komponente
+- `frontend/src/pages/SubscriptionDetailPage.tsx` — Import, State, Handler, Tabelle
+- `frontend/src/pages/SubscriptionDetailPage.css` — `.detail-ph-actions`, `.ph-delete-btn`

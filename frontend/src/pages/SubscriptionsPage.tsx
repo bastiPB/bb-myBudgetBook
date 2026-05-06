@@ -21,6 +21,7 @@ import {
 import type { BillingInterval, SubscriptionRead, SubscriptionStatus } from '../types/subscription'
 import {
   formatAmount,
+  formatDate,
   INTERVAL_LABELS,
   parseAmount,
   STATUS_LABELS,
@@ -393,7 +394,7 @@ export default function SubscriptionsPage() {
                       <td>{formatAmount(sub.amount)}</td>
                       <td><span className="subs-interval">{INTERVAL_LABELS[sub.interval]}</span></td>
                       {/* next_due_date ist jetzt nullable (Zukunfts-Abos) */}
-                      <td>{sub.next_due_date ?? '—'}</td>
+                      <td>{sub.next_due_date ? formatDate(sub.next_due_date) : '—'}</td>
                       <td>
                         <div className="subs-action-cell">
                           {sub.status === 'active' && (

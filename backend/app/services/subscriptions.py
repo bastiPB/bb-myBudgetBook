@@ -16,7 +16,7 @@ from dateutil.relativedelta import relativedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.exceptions import ForbiddenError, InvalidFileError, InvalidSubscriptionStatusError, SubscriptionNotFoundError
+from app.exceptions import DuplicatePriceEntryError, ForbiddenError, InvalidFileError, InvalidSubscriptionStatusError, PriceEntryDeleteBlockedError, PriceHistoryEntryNotFoundError, SubscriptionNotFoundError
 from app.models.subscription import (
     BillingInterval,
     Subscription,
@@ -401,6 +401,89 @@ def get_price_history(
     return list(session.execute(stmt).scalars().all())
 
 
+def delete_price_history_entry(
+    session: Session,
+    subscription_id: uuid.UUID,
+    user_id: uuid.UUID,
+    entry_id: uuid.UUID,
+) -> None:
+    """
+    Löscht einen einzelnen Preishistorie-Eintrag — mit Sicherheitsprüfungen.
+
+    Geblockt wenn:
+    - Es der einzige verbleibende Eintrag ist (Abo ohne Preis ist ungültig).
+    - Es bereits Buchungen für den Zeitraum gibt, in dem dieser Preis galt
+      (historische Daten würden widersprüchlich werden).
+
+    Präzise Bereichsprüfung:
+    Nicht jede Buchung nach entry.valid_from ist betroffen — nur die im Fenster
+    [entry.valid_from, nächster_eintrag.valid_from). So kann ein „mittlerer"
+    Eintrag (z. B. eine falsche Zukunfts-Ankündigung ohne Buchungen) gelöscht
+    werden, auch wenn spätere Einträge mit Buchungen existieren.
+    """
+    sub = _get_subscription_or_raise(session, subscription_id)
+    _check_ownership(sub, user_id)
+
+    # Gesuchten Eintrag laden und Zugehörigkeit prüfen
+    entry = session.execute(
+        select(SubscriptionPriceHistory).where(
+            SubscriptionPriceHistory.id == entry_id,
+            SubscriptionPriceHistory.subscription_id == subscription_id,
+        )
+    ).scalar_one_or_none()
+    if entry is None:
+        raise PriceHistoryEntryNotFoundError()
+
+    # Alle Einträge des Abos laden — für Einzel-Check und sub.amount-Update
+    all_entries = session.execute(
+        select(SubscriptionPriceHistory).where(
+            SubscriptionPriceHistory.subscription_id == subscription_id
+        )
+    ).scalars().all()
+
+    # Letzter Eintrag? Dann darf er nicht gelöscht werden.
+    if len(all_entries) <= 1:
+        raise PriceEntryDeleteBlockedError(
+            "Der einzige Preiseintrag kann nicht gelöscht werden — "
+            "ein Abo braucht mindestens einen Preis."
+        )
+
+    # Zeitfenster bestimmen, in dem dieser Eintrag der gültige Preis war.
+    # Falls ein späterer Eintrag existiert, endet das Fenster dort.
+    # Falls es der letzte Eintrag ist, geht das Fenster bis in die Zukunft.
+    later = [e for e in all_entries if e.valid_from > entry.valid_from]
+    next_valid_from = min(e.valid_from for e in later) if later else None
+
+    # Buchungen im Preisfenster suchen
+    stmt = select(SubscriptionScheduledPayment).where(
+        SubscriptionScheduledPayment.subscription_id == subscription_id,
+        SubscriptionScheduledPayment.due_date >= entry.valid_from,
+    )
+    if next_valid_from is not None:
+        # Nur Buchungen bis zum nächsten Preiseintrag — danach gilt ein anderer Preis
+        stmt = stmt.where(SubscriptionScheduledPayment.due_date < next_valid_from)
+
+    affected = session.execute(stmt).scalar_one_or_none()
+    if affected is not None:
+        raise PriceEntryDeleteBlockedError(
+            "Dieser Preiseintrag kann nicht gelöscht werden, da bereits Buchungen "
+            "für den betroffenen Zeitraum existieren."
+        )
+
+    # Verbleibende Einträge für sub.amount-Neuberechnung vorab merken
+    remaining = [e for e in all_entries if e.id != entry.id]
+
+    session.delete(entry)
+
+    # sub.amount korrigieren falls der gelöschte Eintrag der aktuell gültige war.
+    # applicable_price() wählt anhand der verbleibenden Einträge den richtigen Preis.
+    new_amount = applicable_price(date.today(), remaining)
+    if new_amount != Decimal("0"):
+        sub.amount = new_amount
+
+    session.commit()
+
+
 def get_scheduled_payments(
     session: Session,
     subscription_id: uuid.UUID,
@@ -668,6 +751,17 @@ def price_change(
     """
     sub = _get_subscription_or_raise(session, subscription_id)
     _check_ownership(sub, user_id)
+
+    # Duplikat-Check: existiert bereits ein Eintrag für dieses Datum?
+    # Kein stilles Überschreiben — der User muss den alten Eintrag erst löschen oder bearbeiten.
+    existing = session.execute(
+        select(SubscriptionPriceHistory).where(
+            SubscriptionPriceHistory.subscription_id == sub.id,
+            SubscriptionPriceHistory.valid_from == payload.valid_from,
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        raise DuplicatePriceEntryError(payload.valid_from.isoformat())
 
     # Preishistorie-Eintrag schreiben — mit dem vom User gewählten Datum
     _record_price_change(session, sub, payload.amount, valid_from=payload.valid_from)

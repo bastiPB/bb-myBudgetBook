@@ -31,6 +31,13 @@ Format based on Keep a Changelog.
 - Kündigungs-Flow mit Sicherheits-Modal (Abo-Name eintippen zur Bestätigung)
 - Modal-System ersetzt alle `window.confirm()`-Dialoge
 - „Halbjährlich" in der Interval-Auswahl
+- `DELETE /subscriptions/{id}/price-history/{entry_id}`: Einzelnen Preishistorie-Eintrag löschen
+  - Blockiert wenn es der letzte Eintrag ist (Abo braucht mindestens einen Preis)
+  - Blockiert wenn Buchungen im betroffenen Preiszeitraum existieren (präzise Fensterprüfung)
+  - Erlaubt das Löschen „mittlerer" Einträge (z. B. falsche Zukunfts-Ankündigung) wenn keine Buchungen betroffen sind
+- `DuplicatePriceEntryError` (HTTP 409): `POST /price-change` blockiert jetzt doppelte `valid_from`-Einträge — User muss bestehenden Eintrag erst löschen oder bearbeiten
+- `InfoModal`-Komponente (`frontend/src/components/InfoModal.tsx`): wiederverwendbares Info/Fehler-Overlay mit einem OK-Button, nutzt CSS-Klassen von `ConfirmModal`
+- Löschen-Icon (Papierkorb) in der Preishistorie-Tabelle auf der Detailseite mit Bestätigungs-Modal und Fehler-Overlay
 
 ### Fixed
 - **BUG-01**: `next_due_date` wird nicht mehr gespeichert — immer frisch aus `started_on + N × interval` berechnet (kein Drift)
@@ -39,6 +46,7 @@ Format based on Keep a Changelog.
 - **BUG-04**: „Tatsächlich" zeigt korrekt 1 Periode wenn Abo am selben Tag angelegt und abgerufen wird (war: 0)
 - **BUG-05**: `next_due_date` fehlte in der Abo-Listenansicht — `SubscriptionRead.model_validate()` liest nur echte DB-Spalten; neue Hilfsfunktion `subscription_to_read()` berechnet das Datum und setzt es in allen List-Endpunkten (list, create, suspend, resume, update, logo)
 - **BUG-06**: Stale `sub.amount` nach Preisankündigung — `monatlich` (Detailseite), `monthly_total` (Übersicht) und Scheduler-Snapshots nutzten `sub.amount` direkt; dieser Wert wurde beim Eintragen einer Zukunfts-Preisänderung nicht automatisch aktualisiert; alle drei Stellen berechnen den Betrag jetzt über `applicable_price()` aus der Preishistorie
+- **BUG-07**: Datum „Nächste Fälligkeit" in der Übersichtstabelle wurde im ISO-Format (`2026-05-15`) angezeigt — `formatDate()` war in `SubscriptionsPage.tsx` nicht importiert und nicht angewendet
 
 ### Scheduler
 - Period-basiert: `due_date` = berechneter Fälligkeitstag (nicht mehr `date.today()`)

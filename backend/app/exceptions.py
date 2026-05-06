@@ -95,6 +95,42 @@ class InvalidSubscriptionStatusError(AppError):
         super().__init__(detail, status_code=409)
 
 
+class DuplicatePriceEntryError(AppError):
+    """
+    Wird geworfen, wenn für ein Abo bereits ein Preiseintrag mit demselben Datum existiert.
+
+    HTTP 409 Conflict = die Ressource existiert bereits — bitte erst löschen oder bearbeiten.
+    Kein Überschreiben ohne explizite User-Aktion, um Datenverlust zu vermeiden.
+    """
+
+    def __init__(self, valid_from: str) -> None:
+        super().__init__(
+            f"Für das Datum {valid_from} existiert bereits ein Preiseintrag. "
+            "Bitte den bestehenden Eintrag zuerst löschen oder bearbeiten.",
+            status_code=409,
+        )
+
+
+class PriceHistoryEntryNotFoundError(AppError):
+    """Wird geworfen, wenn ein einzelner Preishistorie-Eintrag anhand seiner ID nicht gefunden wird."""
+
+    def __init__(self) -> None:
+        super().__init__("Preishistorie-Eintrag nicht gefunden.", status_code=404)
+
+
+class PriceEntryDeleteBlockedError(AppError):
+    """
+    Wird geworfen, wenn ein Preishistorie-Eintrag nicht gelöscht werden darf.
+
+    Gründe: letzter verbleibender Eintrag, oder es existieren bereits Buchungen
+    für den Zeitraum in dem dieser Preis galt.
+    HTTP 409 Conflict = Aktion aufgrund des aktuellen Zustands nicht erlaubt.
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason, status_code=409)
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     """Registriert alle globalen Fehler-Handler an der FastAPI-App."""
 

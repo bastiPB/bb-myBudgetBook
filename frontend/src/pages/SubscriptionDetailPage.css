@@ -400,6 +400,37 @@
   margin: 0;
 }
 
+/* Schmale Aktions-Spalte am rechten Rand der Preishistorie-Tabelle */
+.detail-ph-actions {
+  width: 36px;
+  text-align: right;
+  padding-right: 0 !important;
+}
+
+/* Icon-Button: Löschen in der Preishistorie-Zeile */
+.ph-delete-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 5px;
+  color: var(--color-text-muted);
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s, background 0.15s;
+}
+
+.ph-delete-btn:hover:not(:disabled) {
+  color: #c0392b;
+  background: rgba(192, 57, 43, 0.08);
+}
+
+.ph-delete-btn:disabled {
+  opacity: 0.25;
+  cursor: not-allowed;
+}
+
 /* ── Karten-Header mit Titel + Button nebeneinander ── */
 .detail-section-header {
   display: flex;

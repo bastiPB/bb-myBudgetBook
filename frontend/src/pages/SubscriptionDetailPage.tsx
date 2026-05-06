@@ -11,8 +11,10 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 
 import ConfirmModal from '../components/ConfirmModal'
+import InfoModal from '../components/InfoModal'
 import {
   cancelSubscription,
+  deletePriceHistoryEntry,
   getLogoUrl,
   getPriceHistory,
   getScheduledPayments,
@@ -85,8 +87,11 @@ export default function SubscriptionDetailPage() {
   const [priceLoading, setPriceLoading] = useState(false)
   const [priceError, setPriceError] = useState<string | null>(null)
 
-  // Bestätigungs-Modal (Pausieren, Fortsetzen, Kündigen)
+  // Bestätigungs-Modal (Pausieren, Fortsetzen, Kündigen, Preiseintrag löschen)
   const [modal, setModal] = useState<ModalState | null>(null)
+
+  // Info/Fehler-Modal — zeigt Fehlermeldungen der API als Overlay an
+  const [infoModal, setInfoModal] = useState<{ title: string; body: string } | null>(null)
 
   // Abo + Preishistorie + Buchungshistorie beim ersten Rendern parallel laden
   useEffect(() => {
@@ -151,6 +156,30 @@ export default function SubscriptionDetailPage() {
         cancelSubscription(sub.id)
           .then(updated => setSub(updated))
           .catch(err => alert(err instanceof Error ? err.message : 'Fehler beim Kündigen.'))
+      },
+    })
+  }
+
+  // --- Preishistorie-Eintrag löschen ---
+  function handleDeletePriceEntry(entry: PriceHistoryEntry) {
+    if (!sub) return
+    setModal({
+      title: `Preiseintrag vom ${formatDate(entry.valid_from)} löschen?`,
+      body: `Betrag: ${formatAmount(entry.amount)} €. Diese Aktion kann nicht rückgängig gemacht werden.`,
+      onConfirm: async () => {
+        setModal(null)
+        try {
+          await deletePriceHistoryEntry(sub.id, entry.id)
+          // Preishistorie und Kennzahlen neu laden — sub.amount könnte sich geändert haben
+          const [updated, history] = await Promise.all([getSubscription(sub.id), getPriceHistory(sub.id)])
+          setSub(updated)
+          setPriceHistory(history)
+        } catch (err) {
+          setInfoModal({
+            title: 'Löschen nicht möglich',
+            body: err instanceof Error ? err.message : 'Unbekannter Fehler.',
+          })
+        }
       },
     })
   }
@@ -231,7 +260,7 @@ export default function SubscriptionDetailPage() {
   return (
     <div className="detail-page">
 
-      {/* Bestätigungs-Modal */}
+      {/* Bestätigungs-Modal (Pausieren, Fortsetzen, Kündigen, Preiseintrag löschen) */}
       {modal && (
         <ConfirmModal
           title={modal.title}
@@ -240,6 +269,15 @@ export default function SubscriptionDetailPage() {
           confirmText={modal.confirmText}
           onConfirm={modal.onConfirm}
           onCancel={() => setModal(null)}
+        />
+      )}
+
+      {/* Info/Fehler-Modal — API-Fehlermeldungen als Overlay */}
+      {infoModal && (
+        <InfoModal
+          title={infoModal.title}
+          body={infoModal.body}
+          onClose={() => setInfoModal(null)}
         />
       )}
 
@@ -427,6 +465,7 @@ export default function SubscriptionDetailPage() {
               <tr>
                 <th>Gültig ab</th>
                 <th>Betrag</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -434,6 +473,27 @@ export default function SubscriptionDetailPage() {
                 <tr key={entry.id} className={i === 0 ? 'detail-ph-current' : ''}>
                   <td>{formatDate(entry.valid_from)}</td>
                   <td>{formatAmount(entry.amount)} €</td>
+                  <td className="detail-ph-actions">
+                    <button
+                      className="ph-delete-btn"
+                      title={
+                        priceHistory.length <= 1
+                          ? 'Letzter Eintrag — kann nicht gelöscht werden'
+                          : 'Eintrag löschen'
+                      }
+                      disabled={priceHistory.length <= 1}
+                      onClick={() => handleDeletePriceEntry(entry)}
+                    >
+                      {/* Papierkorb-Icon (Feather-Style) */}
+                      <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <polyline points="3 6 5 6 21 6" />
+                        <path d="M19 6l-1 14H6L5 6" />
+                        <path d="M10 11v6" />
+                        <path d="M14 11v6" />
+                        <path d="M9 6V4h6v2" />
+                      </svg>
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>

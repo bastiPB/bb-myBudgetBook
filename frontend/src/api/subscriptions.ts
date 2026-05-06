@@ -99,6 +99,14 @@ export async function getPriceHistory(id: string): Promise<PriceHistoryEntry[]> 
   return apiFetch<PriceHistoryEntry[]>(`/subscriptions/${id}/price-history`)
 }
 
+// Einzelnen Preishistorie-Eintrag löschen.
+// Schlägt fehl (409) wenn es der letzte Eintrag ist oder Buchungen betroffen sind.
+export async function deletePriceHistoryEntry(subscriptionId: string, entryId: string): Promise<void> {
+  return apiFetch<void>(`/subscriptions/${subscriptionId}/price-history/${entryId}`, {
+    method: 'DELETE',
+  })
+}
+
 // Soll-Buchungen eines Abos laden (Slice G) — neueste Buchung zuerst.
 // Leere Liste wenn Buchungshistorie nicht aktiviert oder Scheduler noch nicht gelaufen.
 export async function getScheduledPayments(id: string): Promise<ScheduledPaymentEntry[]> {

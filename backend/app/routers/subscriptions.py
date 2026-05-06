@@ -33,6 +33,7 @@ from app.schemas.subscription import (
 from app.services.subscriptions import (
     cancel_subscription,
     create_subscription,
+    delete_price_history_entry,
     delete_subscription,
     get_overview,
     get_price_history,
@@ -140,6 +141,31 @@ def price_history(
     """
     entries = get_price_history(session, subscription_id, user.id)
     return [PriceHistoryEntry.model_validate(e) for e in entries]
+
+
+@router.delete(
+    "/{subscription_id}/price-history/{entry_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_price_history_entry_endpoint(
+    subscription_id: uuid.UUID,
+    entry_id: uuid.UUID,
+    user: EditorOrAdminUser,
+    session: DatabaseSession,
+) -> None:
+    """
+    Löscht einen einzelnen Preishistorie-Eintrag (v0.2.4).
+
+    Erlaubt wenn:
+    - Mindestens ein weiterer Eintrag für dieses Abo existiert.
+    - Keine Buchungen im Zeitraum existieren, in dem dieser Preis galt.
+
+    Fehler:
+      - 404 wenn das Abo oder der Eintrag nicht gefunden wird
+      - 403 wenn das Abo einem anderen User gehört
+      - 409 wenn der Eintrag der letzte ist oder Buchungen betroffen sind
+    """
+    delete_price_history_entry(session, subscription_id, user.id, entry_id)
 
 
 @router.get("/{subscription_id}/scheduled-payments", response_model=list[ScheduledPaymentRead])
