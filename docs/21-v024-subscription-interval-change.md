@@ -36,7 +36,7 @@ subscription_price_history
 - valid_from
 ```
 
-Fuer v0.2.4 wird daraus logisch eine Historie der Abrechnungsbedingungen:
+Fuer v0.2.4 wird daraus eine neue Historie der Abrechnungsbedingungen:
 
 ```text
 subscription_billing_history
@@ -47,17 +47,14 @@ subscription_billing_history
 - anchor_on
 ```
 
-MVP-Variante: Die bestehende Tabelle `subscription_price_history` kann erweitert werden.
-Der Name ist dann nicht mehr perfekt, aber die Migration bleibt kleiner.
+Entscheidung: v0.2.4 legt eine neue Tabelle `subscription_billing_history` an.
+`subscription_price_history` wird nicht mit `interval` und `anchor_on` erweitert.
 
-Langfristig sauberer Name:
-
-```text
-subscription_billing_history
-```
-
-Fuer v0.2.4 wird empfohlen, die Tabelle umzubenennen oder neu anzulegen, wenn der Aufwand vertretbar ist.
-Wenn nicht, darf `subscription_price_history` erweitert werden und spaeter umbenannt werden.
+Begruendung:
+- Die Algorithmen werden ohnehin groesser umgebaut.
+- Der alte Name beschreibt das neue Konzept nicht mehr.
+- Eine saubere Tabelle verhindert spaetere Verwirrung zwischen "Preis" und "Abrechnungsbedingungen".
+- Die Codebase ist noch ueberschaubar genug, um den Schnitt jetzt sauber zu ziehen.
 
 ---
 
@@ -196,7 +193,7 @@ Der Fokus ist:
 
 ## Datenmodell
 
-### Empfehlung: neue Tabelle
+### Neue Tabelle
 
 ```python
 class SubscriptionBillingHistory(BaseModel):
@@ -219,35 +216,79 @@ class SubscriptionBillingHistory(BaseModel):
     )
 ```
 
-### Alternative: bestehende Tabelle erweitern
+Hinweis fuer die Alembic-Migration:
+
+Der PostgreSQL-Enum `billinginterval` existiert bereits durch `subscriptions.interval`.
+Beim Anlegen der neuen Tabelle darf Alembic/PostgreSQL den Enum nicht erneut erzeugen.
+In der Migration muss der Enum daher mit `create_type=False` wiederverwendet werden:
 
 ```python
-class SubscriptionPriceHistory(BaseModel):
-    __tablename__ = "subscription_price_history"
-
-    subscription_id: Mapped[uuid.UUID]
-    amount: Mapped[Decimal]
-    valid_from: Mapped[date]
-    interval: Mapped[BillingInterval]
-    anchor_on: Mapped[date]
+sa.Column(
+    "interval",
+    sa.Enum(
+        "monthly",
+        "quarterly",
+        "semiannual",
+        "yearly",
+        "biennial",
+        name="billinginterval",
+        create_type=False,
+    ),
+    nullable=False,
+)
 ```
 
-Migration:
+Im SQLAlchemy-Model selbst bleibt `SAEnum(BillingInterval, name="billinginterval")` ausreichend.
 
-```text
-ALTER TABLE subscription_price_history ADD COLUMN interval billinginterval;
-ALTER TABLE subscription_price_history ADD COLUMN anchor_on date;
+### Migration aus `subscription_price_history`
 
-UPDATE subscription_price_history ph
-SET
-  interval = s.interval,
-  anchor_on = s.started_on
-FROM subscriptions s
-WHERE ph.subscription_id = s.id;
+Die bestehende Preishistorie ist die Datenquelle fuer die initiale Billing-Historie.
+Jeder bestehende Preiseintrag wird migriert und bekommt das aktuell gespeicherte Intervall des Abos sowie `started_on` als ersten Anker.
 
-ALTER TABLE subscription_price_history ALTER COLUMN interval SET NOT NULL;
-ALTER TABLE subscription_price_history ALTER COLUMN anchor_on SET NOT NULL;
+```python
+def upgrade() -> None:
+    op.create_table(...)
+
+    import uuid as _uuid
+    conn = op.get_bind()
+    rows = conn.execute(sa.text(
+        """
+        SELECT
+            ph.subscription_id,
+            ph.amount,
+            ph.valid_from,
+            s.interval,
+            s.started_on
+        FROM subscription_price_history ph
+        JOIN subscriptions s ON s.id = ph.subscription_id
+        """
+    )).fetchall()
+
+    for row in rows:
+        conn.execute(sa.text(
+            """
+            INSERT INTO subscription_billing_history
+                (id, subscription_id, amount, interval, valid_from, anchor_on)
+            VALUES
+                (:id, :subscription_id, :amount, :interval, :valid_from, :anchor_on)
+            """
+        ), {
+            "id": str(_uuid.uuid4()),
+            "subscription_id": str(row.subscription_id),
+            "amount": row.amount,
+            "interval": row.interval,
+            "valid_from": row.valid_from,
+            "anchor_on": row.started_on,
+        })
 ```
+
+Warum Python-UUIDs?
+
+Das Projekt erzeugt UUIDs bewusst in Python.
+Die Migration soll deshalb kein `gen_random_uuid()` verwenden, damit keine PostgreSQL-Erweiterung wie `pgcrypto` noetig wird.
+
+Nach erfolgreicher Migration kann `subscription_price_history` entfernt werden, falls kein Rollback-Szenario sie benoetigt.
+Alternativ bleibt sie fuer eine Uebergangsrelease ungenutzt bestehen und wird in einer spaeteren Migration entfernt.
 
 ### Aktuelle Cache-Felder
 
@@ -265,6 +306,57 @@ sub.interval = heute gueltiges interval aus billing_history
 
 Wenn eine zukuenftige Aenderung wirksam wird, darf der Code nicht dauerhaft stale bleiben.
 Lesende Funktionen muessen entweder direkt aus der Historie rechnen oder den Snapshot bei Bedarf synchronisieren.
+
+### Cache-Sync-Regel
+
+Jede Funktion, die einen neuen Billing-History-Eintrag schreibt oder loescht, muss danach den Snapshot pruefen.
+
+Zentrale Hilfsfunktion:
+
+```python
+def sync_subscription_billing_snapshot(sub: Subscription, billing_history: list) -> None:
+    """
+    Setzt subscriptions.amount und subscriptions.interval auf die heute gueltigen Billing Terms.
+    Zukuenftige Eintraege duerfen den Snapshot noch nicht veraendern.
+    """
+```
+
+Regel:
+
+```text
+current = neuester Billing-History-Eintrag mit valid_from <= today
+sub.amount = current.amount
+sub.interval = current.interval
+```
+
+Wichtig:
+- `price_change(...)` ruft diese Funktion nach dem neuen Eintrag auf.
+- `interval_change(...)` ruft diese Funktion nach dem neuen Eintrag auf.
+- Delete/Edit von Billing-History-Eintraegen ruft diese Funktion nach der Aenderung auf.
+- Wenn der neue Eintrag in der Zukunft liegt, bleiben `sub.amount` und `sub.interval` unveraendert.
+- Wenn ein frueher geplanter Zukunftseintrag heute wirksam wird, muessen lesende Funktionen entweder direkt aus der Historie rechnen oder den Snapshot vor der Rueckgabe synchronisieren.
+
+Beispiel:
+
+```text
+Heute: 2026-05-06
+Aktueller Snapshot: 5.00 monthly
+Neuer Eintrag: 54.00 yearly valid_from=2026-07-01
+
+Ergebnis:
+sub.amount bleibt 5.00
+sub.interval bleibt monthly
+```
+
+```text
+Heute: 2026-05-06
+Aktueller Snapshot: 5.00 monthly
+Neuer Eintrag: 54.00 yearly valid_from=2026-03-01
+
+Ergebnis:
+sub.amount wird 54.00
+sub.interval wird yearly
+```
 
 ---
 
@@ -395,7 +487,10 @@ class IntervalChangeRequest(BaseModel):
         return _normalize_amount(v)
 ```
 
-Optional spaeter:
+### `BillingHistoryEntry`
+
+Wird fuer `GET /subscriptions/{id}/billing-history` und die Frontend-Historientabelle benoetigt.
+Das Schema gehoert in Chunk 2, der Endpoint und die Frontend-Nutzung folgen in Chunk 4/6.
 
 ```python
 class BillingHistoryEntry(BaseModel):
@@ -438,6 +533,26 @@ def compute_due_dates_for_billing_history(billing_history: list, up_to: date) ->
     """
 ```
 
+```python
+def ensure_no_billing_history_entry_on_date(billing_history: list, valid_from: date) -> None:
+    """
+    Blockt price_change/interval_change, wenn fuer valid_from bereits ein Billing-History-Eintrag existiert.
+    Wirft DuplicateBillingHistoryEntryError.
+    """
+```
+
+```python
+def ensure_existing_payments_acknowledged_if_needed(
+    session: Session,
+    subscription_id: uuid.UUID,
+    payload: IntervalChangeRequest,
+) -> None:
+    """
+    Prueft bei rueckwirkenden Intervallwechseln ob Scheduled Payments ab valid_from existieren.
+    Ohne acknowledge_existing_payments=True wird BillingHistoryChangeBlockedError geworfen.
+    """
+```
+
 Rueckgabetyp als Dataclass:
 
 ```python
@@ -474,6 +589,99 @@ def compute_due_dates_for_billing_history(history, up_to):
             ))
 
     return sorted(result, key=lambda d: d.due_date)
+```
+
+### `price_change` Copy-forward-Regel
+
+Eine reine Preisaenderung darf keinen neuen Faelligkeitsanker erzeugen.
+Darum muss `price_change(...)` beim Schreiben des neuen Billing-History-Eintrags `interval` und `anchor_on` vom bereits gueltigen Billing-Term uebernehmen.
+
+Schrittfolge:
+
+```python
+def price_change(session, user_id, subscription_id, payload):
+    sub = _get_subscription_or_raise(session, subscription_id)
+    _check_ownership(sub, user_id)
+
+    history = load_billing_history(session, subscription_id)
+    ensure_no_billing_history_entry_on_date(history, payload.valid_from)
+
+    base_terms = applicable_billing_terms(
+        payload.valid_from,
+        history,
+        include_future=True,
+    )
+
+    new_entry = SubscriptionBillingHistory(
+        subscription_id=sub.id,
+        amount=payload.amount,
+        interval=base_terms.interval,
+        anchor_on=base_terms.anchor_on,
+        valid_from=payload.valid_from,
+    )
+    session.add(new_entry)
+
+    sync_subscription_billing_snapshot(sub, [*history, new_entry])
+    session.commit()
+```
+
+Wichtig:
+- Vor dem Insert wird explizit geprueft, ob fuer `payload.valid_from` bereits ein Billing-History-Eintrag existiert. In diesem Fall wirft der Service `DuplicateBillingHistoryEntryError`.
+- `base_terms` wird zum `payload.valid_from` gesucht, nicht blind zu `today`.
+- `include_future=True` ist hier absichtlich: Wenn bereits eine zukuenftige Intervallaenderung geplant ist und danach eine Preisankuendigung innerhalb dieses zukuenftigen Segments eingetragen wird, muss die Preisaenderung das zukuenftige Intervall und dessen Anker kopieren.
+- Falls fuer `payload.valid_from` kein gueltiger Billing-History-Eintrag existiert, ist die Historie defekt und der Service muss blocken.
+- Der Snapshot wird danach nur auf die heute gueltigen Terms synchronisiert. Ein zukuenftiger Preiseintrag veraendert `sub.amount` und `sub.interval` noch nicht.
+
+Beispiel:
+
+```text
+History:
+  5.00 monthly valid_from=2026-03-15 anchor_on=2026-03-15
+  54.00 yearly valid_from=2026-07-01 anchor_on=2026-07-01
+
+Neue Preisaenderung:
+  59.00 valid_from=2026-10-01
+
+Neuer Eintrag:
+  59.00 yearly valid_from=2026-10-01 anchor_on=2026-07-01
+```
+
+Damit bleibt der Jahresrhythmus am 1. Juli erhalten.
+
+### `interval_change` Insert-Regel
+
+Auch `interval_change(...)` prueft vor dem Insert explizit auf ein Duplikat fuer `valid_from`.
+Der Unique Constraint in der DB bleibt die zweite Verteidigungslinie, aber die Service-Schicht soll eine fachliche Fehlermeldung liefern.
+
+Schrittfolge:
+
+```python
+def interval_change(session, user_id, subscription_id, payload):
+    sub = _get_subscription_or_raise(session, subscription_id)
+    _check_ownership(sub, user_id)
+
+    history = load_billing_history(session, subscription_id)
+    ensure_no_billing_history_entry_on_date(history, payload.valid_from)
+    ensure_existing_payments_acknowledged_if_needed(session, sub.id, payload)
+
+    new_entry = SubscriptionBillingHistory(
+        subscription_id=sub.id,
+        amount=payload.amount,
+        interval=payload.interval,
+        valid_from=payload.valid_from,
+        anchor_on=payload.valid_from,
+    )
+    session.add(new_entry)
+
+    sync_subscription_billing_snapshot(sub, [*history, new_entry])
+    session.commit()
+```
+
+Fehlerfall:
+
+```text
+Wenn bereits ein Eintrag mit subscription_id + valid_from existiert:
+  -> DuplicateBillingHistoryEntryError(valid_from)
 ```
 
 ### `compute_next_due_date`
@@ -780,6 +988,94 @@ MVP:
 
 ---
 
+## Delete/Edit von Billing-History
+
+Der bestehende v0.2.3 Endpoint
+
+```http
+DELETE /subscriptions/{subscription_id}/price-history/{entry_id}
+```
+
+muss mit dem Umbau neu bewertet werden.
+
+Bisher prueft der Service im Kern:
+- Gibt es mindestens einen weiteren Preiseintrag?
+- Gibt es Scheduled Payments im Preisfenster `[entry.valid_from, next.valid_from)`?
+
+Nach v0.2.4 reicht das nicht mehr, weil ein Eintrag nicht nur einen Preis beschreibt.
+Er beschreibt auch `interval` und `anchor_on`.
+
+### Neue Schutzregeln
+
+Ein Billing-History-Eintrag darf nicht geloescht werden, wenn:
+
+- Es der einzige verbleibende Billing-History-Eintrag des Abos ist.
+- Im betroffenen Zeitfenster Scheduled Payments existieren.
+- Durch das Loeschen der einzige Eintrag verloren ginge, der einen bestimmten Intervallwechsel oder Faelligkeitsanker erklaert.
+- Der geloeschte Eintrag heute gueltig war und danach kein gueltiger Eintrag `valid_from <= today` mehr existiert.
+
+### Zeitfenster
+
+Das betroffene Fenster bleibt:
+
+```text
+[entry.valid_from, next_entry.valid_from)
+```
+
+Falls kein spaeterer Eintrag existiert:
+
+```text
+[entry.valid_from, unendlich)
+```
+
+Alle Scheduled Payments in diesem Fenster blocken das Loeschen, egal ob sich "nur" der Preis, das Intervall oder der Anker aendern wuerde.
+
+Warum so streng?
+
+Eine vorhandene Buchung ist ein historisches Artefakt.
+Wenn der Billing-History-Eintrag geloescht wird, kann die Buchung danach nicht mehr eindeutig aus der Historie hergeleitet werden.
+
+### Anker-Beispiel
+
+History:
+
+```text
+5.00  monthly valid_from=2026-03-15 anchor_on=2026-03-15
+54.00 yearly  valid_from=2026-07-01 anchor_on=2026-07-01
+```
+
+Der zweite Eintrag ist nicht nur ein Preis von 54.00 EUR.
+Er erklaert auch, warum die naechste Jahresfaelligkeit am 1. Juli liegt.
+
+Wenn dieser Eintrag geloescht wird, faellt das Abo fachlich auf den monatlichen Rhythmus ab 15. Maerz zurueck.
+Alle Buchungen ab 1. Juli waeren dann potentiell falsch.
+
+### Cache-Sync nach Delete
+
+Nach erfolgreichem Delete:
+
+```python
+session.delete(entry)
+sync_subscription_billing_snapshot(sub, remaining_entries)
+session.commit()
+```
+
+Wenn der geloeschte Eintrag nur in der Zukunft lag, bleibt der heutige Snapshot normalerweise unveraendert.
+Wenn der geloeschte Eintrag heute gueltig war, faellt der Snapshot auf den vorherigen gueltigen Eintrag zurueck.
+
+### API-Naming
+
+Mit der neuen Tabelle wird auch das API-Naming auf Billing-History umgestellt:
+
+```http
+GET    /subscriptions/{id}/billing-history
+DELETE /subscriptions/{id}/billing-history/{entry_id}
+```
+
+Der alte Pfad `/price-history` darf fuer eine Uebergangsrelease als Alias bestehen bleiben, sollte aber nicht mehr als primaerer Endpoint dokumentiert werden.
+
+---
+
 ## Fehlerklassen
 
 Neue Fehler:
@@ -799,9 +1095,8 @@ class BillingHistoryChangeBlockedError(AppError):
     status_code = 409
 ```
 
-MVP-Alternative:
-- Bestehende `DuplicatePriceEntryError` kann weiterverwendet werden, wenn die Tabelle nicht umbenannt wird.
-- Fuer saubere Fehlermeldungen ist eine neue Klasse trotzdem besser.
+Bestehende `DuplicatePriceEntryError` und `PriceHistoryEntryNotFoundError` werden nicht weiterverwendet.
+Die neuen Fehler sollen fachlich auf Billing-History verweisen.
 
 ---
 
@@ -921,6 +1216,75 @@ Request wird vom Schema ignoriert oder als 422 abgelehnt.
 Empfehlung:
 - Pydantic `extra="forbid"` fuer Update-Schemas pruefen, damit der Fehler sichtbar ist.
 
+### T-07: Zukunftseintrag aktualisiert Snapshot nicht
+
+Given:
+
+```text
+today = 2026-05-06
+snapshot = 5.00 monthly
+new billing entry = 54.00 yearly valid_from=2026-07-01 anchor_on=2026-07-01
+```
+
+Then:
+
+```text
+sub.amount bleibt 5.00
+sub.interval bleibt monthly
+```
+
+### T-08: Rueckwirkender Eintrag aktualisiert Snapshot sofort
+
+Given:
+
+```text
+today = 2026-05-06
+snapshot = 5.00 monthly
+new billing entry = 54.00 yearly valid_from=2026-03-01 anchor_on=2026-03-01
+```
+
+Then:
+
+```text
+sub.amount wird 54.00
+sub.interval wird yearly
+```
+
+### T-09: Delete von Billing-History mit Buchungen im Fenster blockt
+
+Given:
+
+```text
+entry = 54.00 yearly valid_from=2026-07-01 anchor_on=2026-07-01
+scheduled payment exists at 2026-07-01
+```
+
+Then:
+
+```text
+DELETE billing-history/{entry_id} -> 409 Conflict
+```
+
+### T-10: Delete synchronisiert Snapshot
+
+Given:
+
+```text
+today = 2026-05-06
+history:
+  5.00 monthly valid_from=2026-01-01 anchor_on=2026-01-01
+  7.00 monthly valid_from=2026-03-01 anchor_on=2026-01-01
+snapshot = 7.00 monthly
+delete entry valid_from=2026-03-01
+```
+
+Then:
+
+```text
+sub.amount wird 5.00
+sub.interval bleibt monthly
+```
+
 ---
 
 ## Build Plan
@@ -932,10 +1296,11 @@ Dateien:
 - neue Alembic Migration
 
 Aufgaben:
-- Billing-History-Modell einfuehren oder Price-History erweitern.
+- Neues Billing-History-Modell einfuehren.
 - `interval` und `anchor_on` historisieren.
 - Bestehende Preis-History-Eintraege migrieren.
 - Unique Constraint fuer `(subscription_id, valid_from)` sicherstellen.
+- In der Alembic-Migration den bestehenden PostgreSQL-Enum `billinginterval` mit `create_type=False` wiederverwenden.
 
 ### Chunk 2 - Schemas und Fehler
 
@@ -945,8 +1310,10 @@ Dateien:
 
 Aufgaben:
 - `IntervalChangeRequest` ergaenzen.
+- `BillingHistoryEntry` als Read-Schema fuer die Historientabelle ergaenzen.
 - `SubscriptionUpdate.interval` entfernen.
 - Neue Fehlerklasse fuer blockierte Intervallwechsel ergaenzen.
+- `DuplicateBillingHistoryEntryError` fuer doppelte `valid_from`-Eintraege ergaenzen.
 
 ### Chunk 3 - Service-Algorithmen
 
@@ -957,16 +1324,20 @@ Aufgaben:
 - `applicable_billing_terms`
 - `compute_due_dates_for_billing_history`
 - `compute_next_due_date_from_history`
+- `sync_subscription_billing_snapshot`
 - Kennzahlen auf Billing-History umstellen.
 
 ### Chunk 4 - Endpoints
 
 Dateien:
+- `backend/app/services/subscriptions.py`
 - `backend/app/routers/subscriptions.py`
 
 Aufgaben:
 - `POST /subscriptions/{id}/interval-change`
 - Bestehenden `price-change` intern auf Billing-History umstellen.
+- In `price_change` und `interval_change` vor dem Insert explizit auf doppeltes `valid_from` pruefen.
+- Delete-Endpoint fuer Billing-History anpassen: `interval`, `anchor_on`, betroffene Scheduled Payments und Cache-Sync beruecksichtigen.
 
 ### Chunk 5 - Scheduler
 
@@ -975,6 +1346,7 @@ Dateien:
 
 Aufgaben:
 - Faelligkeiten aus Billing-History statt `sub.interval` erzeugen.
+- Billing-History fuer alle betroffenen Abos per Bulk-Load vorladen und als `billing_history_by_sub` gruppieren, analog zu `pause_history`.
 - Amount pro Faelligkeit aus ComputedDue verwenden.
 
 ### Chunk 6 - Frontend
@@ -982,11 +1354,15 @@ Aufgaben:
 Dateien:
 - `frontend/src/types/subscription.ts`
 - `frontend/src/api/subscriptions.ts`
+- `frontend/src/pages/SubscriptionsPage.tsx`
 - `frontend/src/pages/SubscriptionDetailPage.tsx`
 
 Aufgaben:
 - Typen fuer `IntervalChangeRequest`.
+- `SubscriptionUpdate` ohne `interval` nachziehen.
 - API-Client-Funktion `intervalChange`.
+- Interval-Selector aus dem Inline-Edit der Uebersichtsseite entfernen.
+- In der Uebersichtsseite optional einen Hinweis/Link anzeigen: "Intervall ueber Detailseite aendern".
 - Formular "Intervall wechseln".
 - 409-Warnung mit Bestaetigungsflow.
 
@@ -996,7 +1372,7 @@ Dateien:
 - `backend/tests/test_subscriptions_v024.py`
 
 Aufgaben:
-- Akzeptanz-Szenarien T-01 bis T-06 abdecken.
+- Akzeptanz-Szenarien T-01 bis T-10 abdecken.
 - Reine Algorithmus-Tests ohne DB bevorzugen.
 - Service-Tests fuer Block/Confirm-Verhalten mit Mock-Session.
 
@@ -1006,27 +1382,23 @@ Aufgaben:
 
 ### O-01: Tabelle umbenennen oder erweitern?
 
-Option A: `subscription_price_history` erweitern.
+Entscheidung: neue Tabelle `subscription_billing_history`.
 
-Vorteile:
-- Weniger Migration.
-- Weniger Frontend/API-Bruch.
+`subscription_price_history` wird nicht erweitert.
 
-Nachteile:
-- Name ist fachlich ungenau.
+Begruendung:
+- v0.2.4 ist ohnehin ein grosser Refactor der Subscription-Algorithmen.
+- `subscription_price_history` mit `interval` und `anchor_on` waere fachlich irrefuehrend.
+- Eine explizite Billing-History bildet das neue Konzept sauber ab.
+- Spaetere Features wie Edit/Delete, Intervallwechsel-Anzeige und Scheduler-Debugging werden verstaendlicher.
 
-Option B: neue Tabelle `subscription_billing_history`.
+Migrationsstrategie:
+- Neue Tabelle `subscription_billing_history` anlegen.
+- Bestehende `subscription_price_history`-Eintraege in Billing-History migrieren.
+- Bestehende Service-/Router-/Frontend-Namen von Price-History auf Billing-History umbauen.
+- Optional: `/price-history` fuer eine Uebergangsrelease als Alias behalten.
 
-Vorteile:
-- Fachlich sauber.
-- Bessere Grundlage fuer spaetere Features.
-
-Nachteile:
-- Groessere Migration.
-- Mehr Umbau im Code.
-
-Empfehlung: Wenn v0.2.4 sowieso ein groesserer Backend-Slice wird, Option B.
-Wenn schnell ein MVP entstehen soll, Option A.
+Status: entschieden.
 
 ### O-02: Soll `valid_from` beim Intervallwechsel immer erste Faelligkeit sein?
 
