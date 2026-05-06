@@ -1,21 +1,45 @@
-// SubscriptionDetailPage.tsx — Detailansicht eines einzelnen Abos (Slice C).
+// SubscriptionDetailPage.tsx — Detailansicht eines einzelnen Abos (v0.2.3).
 //
 // Zeigt:
-//   - Kostenkarten (monatlich / jährlich / kumuliert)
+//   - Vier Kostenkennzahlen (Monatlich / Dieses Jahr / Intervalle / Tatsächlich)
 //   - Alle Stammdaten (Abschlussdatum, Fälligkeit, Intervall, Status)
+//   - Preisänderungs-Formular mit Wirkungsdatum
 //   - Notizen mit Inline-Bearbeitung
-//   - Pausieren / Fortsetzen Aktionen
+//   - Pausieren / Fortsetzen / Kündigen (mit Modal)
+//   - Preishistorie + Buchungshistorie
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 
-import { getLogoUrl, getPriceHistory, getScheduledPayments, getSubscription, resumeSubscription, suspendSubscription, updateSubscription, uploadSubscriptionLogo } from '../api/subscriptions'
+import ConfirmModal from '../components/ConfirmModal'
+import InfoModal from '../components/InfoModal'
+import {
+  cancelSubscription,
+  deletePriceHistoryEntry,
+  getLogoUrl,
+  getPriceHistory,
+  getScheduledPayments,
+  getSubscription,
+  priceChange,
+  resumeSubscription,
+  suspendSubscription,
+  updateSubscription,
+  uploadSubscriptionLogo,
+} from '../api/subscriptions'
 import type { PriceHistoryEntry, ScheduledPaymentEntry, SubscriptionDetail, SubscriptionStatus } from '../types/subscription'
-import { formatAmount, formatDate, INTERVAL_LABELS, PAYMENT_STATUS_LABELS, STATUS_LABELS } from '../types/subscription'
-// SubscriptionsPage.css enthält die gemeinsamen Button-Klassen (btn-primary-sm, btn-outline-sm etc.)
+import { formatAmount, formatDate, INTERVAL_LABELS, parseAmount, PAYMENT_STATUS_LABELS, STATUS_LABELS } from '../types/subscription'
+// SubscriptionsPage.css enthält die gemeinsamen Button-Klassen
 import './SubscriptionsPage.css'
 import './SubscriptionDetailPage.css'
 
-// Kleines Status-Badge — gleiche Logik wie in SubscriptionsPage
+// Typ für den Modal-State
+type ModalState = {
+  title: string
+  body?: string
+  dangerous?: boolean
+  confirmText?: string
+  onConfirm: () => void
+}
+
 function StatusBadge({ status }: { status: SubscriptionStatus }) {
   return (
     <span className={`detail-status-badge detail-status-${status}`}>
@@ -24,29 +48,26 @@ function StatusBadge({ status }: { status: SubscriptionStatus }) {
   )
 }
 
-// Eine Kostenkarte mit Bezeichnung, formatiertem Betrag und optionalem Hinweis
-function CostCard({ label, amount, hint }: { label: string; amount: string; hint?: string }) {
+// Eine Kostenkarte mit Bezeichnung, formatiertem Wert und optionalem Hinweis.
+// valueStr: bereits formatierter String (z. B. "9,99 €" oder "12")
+function CostCard({ label, valueStr, hint }: { label: string; valueStr: string; hint?: string }) {
   return (
     <div className="detail-cost-card">
       <span className="detail-cost-label">{label}</span>
-      <span className="detail-cost-value">{formatAmount(amount)} €</span>
+      <span className="detail-cost-value">{valueStr}</span>
       {hint && <span className="detail-cost-hint">{hint}</span>}
     </div>
   )
 }
 
 export default function SubscriptionDetailPage() {
-  // :id aus der URL lesen — z. B. /subscriptions/abc-123 → id = "abc-123"
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
 
   const [sub, setSub] = useState<SubscriptionDetail | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
 
-  // Preishistorie (Slice E)
   const [priceHistory, setPriceHistory] = useState<PriceHistoryEntry[]>([])
-
-  // Buchungshistorie (Slice G)
   const [scheduledPayments, setScheduledPayments] = useState<ScheduledPaymentEntry[]>([])
 
   // Logo-Upload
@@ -60,8 +81,19 @@ export default function SubscriptionDetailPage() {
   const [notesLoading, setNotesLoading] = useState(false)
   const [notesError, setNotesError] = useState<string | null>(null)
 
-  // Abo und Preishistorie beim ersten Rendern parallel laden.
-  // Promise.all: beide Requests laufen gleichzeitig — kürzer als nacheinander.
+  // Preisänderungs-Formular
+  const [showPriceForm, setShowPriceForm] = useState(false)
+  const [priceForm, setPriceForm] = useState({ amount: '', valid_from: '' })
+  const [priceLoading, setPriceLoading] = useState(false)
+  const [priceError, setPriceError] = useState<string | null>(null)
+
+  // Bestätigungs-Modal (Pausieren, Fortsetzen, Kündigen, Preiseintrag löschen)
+  const [modal, setModal] = useState<ModalState | null>(null)
+
+  // Info/Fehler-Modal — zeigt Fehlermeldungen der API als Overlay an
+  const [infoModal, setInfoModal] = useState<{ title: string; body: string } | null>(null)
+
+  // Abo + Preishistorie + Buchungshistorie beim ersten Rendern parallel laden
   useEffect(() => {
     if (!id) return
     Promise.all([getSubscription(id), getPriceHistory(id), getScheduledPayments(id)])
@@ -74,34 +106,85 @@ export default function SubscriptionDetailPage() {
       .catch(err => setLoadError(err instanceof Error ? err.message : 'Ladefehler'))
   }, [id])
 
-  // Abo pausieren — navigiert nicht weg, aktualisiert nur den State
-  async function handleSuspend() {
-    if (!sub) return
-    if (!window.confirm(`"${sub.name}" pausieren?`)) return
-    try {
-      await suspendSubscription(sub.id, {})
-      // getSubscription erneut aufrufen damit computed fields aktuell bleiben
-      const detail = await getSubscription(sub.id)
-      setSub(detail)
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Fehler beim Pausieren.')
-    }
+  // --- Hilfe: Abo neu laden (nach Preis- oder Status-Änderung) ---
+  async function reloadSub() {
+    if (!id) return
+    const [data, history] = await Promise.all([getSubscription(id), getPriceHistory(id)])
+    setSub(data)
+    setPriceHistory(history)
   }
 
-  // Pausiertes Abo wieder fortsetzen
-  async function handleResume() {
+  // --- Abo pausieren ---
+  function handleSuspend() {
     if (!sub) return
-    if (!window.confirm(`"${sub.name}" wieder fortsetzen?`)) return
-    try {
-      await resumeSubscription(sub.id)
-      const detail = await getSubscription(sub.id)
-      setSub(detail)
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Fehler beim Fortsetzen.')
-    }
+    setModal({
+      title: `"${sub.name}" pausieren?`,
+      body: 'Das Abo bleibt gespeichert. Du kannst es jederzeit fortsetzen.',
+      onConfirm: () => {
+        setModal(null)
+        suspendSubscription(sub.id, {})
+          .then(() => reloadSub())
+          .catch(err => alert(err instanceof Error ? err.message : 'Fehler beim Pausieren.'))
+      },
+    })
   }
 
-  // Logo hochladen — Datei-Input löst diesen Handler aus
+  // --- Abo fortsetzen ---
+  function handleResume() {
+    if (!sub) return
+    setModal({
+      title: `"${sub.name}" fortsetzen?`,
+      onConfirm: () => {
+        setModal(null)
+        resumeSubscription(sub.id)
+          .then(() => reloadSub())
+          .catch(err => alert(err instanceof Error ? err.message : 'Fehler beim Fortsetzen.'))
+      },
+    })
+  }
+
+  // --- Abo kündigen — Sicherheits-Modal (User muss Namen eintippen) ---
+  function handleCancel() {
+    if (!sub) return
+    setModal({
+      title: `"${sub.name}" kündigen?`,
+      body: 'Das Abo wird als "Beendet" markiert. Der Eintrag bleibt als Archiv erhalten.',
+      dangerous: true,
+      confirmText: sub.name,
+      onConfirm: () => {
+        setModal(null)
+        cancelSubscription(sub.id)
+          .then(updated => setSub(updated))
+          .catch(err => alert(err instanceof Error ? err.message : 'Fehler beim Kündigen.'))
+      },
+    })
+  }
+
+  // --- Preishistorie-Eintrag löschen ---
+  function handleDeletePriceEntry(entry: PriceHistoryEntry) {
+    if (!sub) return
+    setModal({
+      title: `Preiseintrag vom ${formatDate(entry.valid_from)} löschen?`,
+      body: `Betrag: ${formatAmount(entry.amount)} €. Diese Aktion kann nicht rückgängig gemacht werden.`,
+      onConfirm: async () => {
+        setModal(null)
+        try {
+          await deletePriceHistoryEntry(sub.id, entry.id)
+          // Preishistorie und Kennzahlen neu laden — sub.amount könnte sich geändert haben
+          const [updated, history] = await Promise.all([getSubscription(sub.id), getPriceHistory(sub.id)])
+          setSub(updated)
+          setPriceHistory(history)
+        } catch (err) {
+          setInfoModal({
+            title: 'Löschen nicht möglich',
+            body: err instanceof Error ? err.message : 'Unbekannter Fehler.',
+          })
+        }
+      },
+    })
+  }
+
+  // --- Logo hochladen ---
   async function handleLogoUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file || !sub) return
@@ -109,25 +192,22 @@ export default function SubscriptionDetailPage() {
     setLogoLoading(true)
     try {
       const updated = await uploadSubscriptionLogo(sub.id, file)
-      // Nur logo_url aktualisieren — computed fields bleiben wie sie sind
       setSub(prev => prev ? { ...prev, logo_url: updated.logo_url } : prev)
     } catch (err) {
       setLogoError(err instanceof Error ? err.message : 'Fehler beim Hochladen.')
     } finally {
       setLogoLoading(false)
-      // Input zurücksetzen damit dieselbe Datei erneut gewählt werden kann
       e.target.value = ''
     }
   }
 
-  // Notizen speichern — sendet nur das notes-Feld per PATCH
+  // --- Notizen speichern ---
   async function handleSaveNotes(e: React.SyntheticEvent<HTMLFormElement>) {
     e.preventDefault()
     if (!sub) return
     setNotesError(null)
     setNotesLoading(true)
     try {
-      // model_fields_set im Backend: notes wird explizit gesetzt (auch wenn null)
       await updateSubscription(sub.id, { notes: notesValue || null })
       setSub(prev => prev ? { ...prev, notes: notesValue || null } : prev)
       setNotesEditing(false)
@@ -138,11 +218,68 @@ export default function SubscriptionDetailPage() {
     }
   }
 
+  // --- Preisänderung speichern ---
+  async function handlePriceChange(e: React.SyntheticEvent<HTMLFormElement>) {
+    e.preventDefault()
+    if (!sub) return
+    setPriceError(null)
+
+    const amountNum = parseAmount(priceForm.amount)
+    if (isNaN(amountNum) || amountNum <= 0) {
+      setPriceError('Bitte einen gültigen Betrag eingeben (z. B. 9,99).')
+      return
+    }
+    if (!priceForm.valid_from) {
+      setPriceError('Bitte ein Wirkungsdatum angeben.')
+      return
+    }
+
+    setPriceLoading(true)
+    try {
+      const updated = await priceChange(sub.id, { amount: amountNum, valid_from: priceForm.valid_from })
+      setSub(updated)
+      // Preishistorie separat neu laden damit die Tabelle aktuell ist
+      const history = await getPriceHistory(sub.id)
+      setPriceHistory(history)
+      setPriceForm({ amount: '', valid_from: '' })
+      setShowPriceForm(false)
+    } catch (err) {
+      setPriceError(err instanceof Error ? err.message : 'Fehler beim Speichern.')
+    } finally {
+      setPriceLoading(false)
+    }
+  }
+
   if (loadError) return <p className="detail-load-error">Fehler: {loadError}</p>
   if (!sub) return <p className="detail-loading">Wird geladen…</p>
 
+  // Prüfen ob eine Preisankündigung in der Zukunft liegt
+  const today = new Date().toISOString().slice(0, 10)
+  const futurePrice = priceHistory.find(p => p.valid_from > today)
+
   return (
     <div className="detail-page">
+
+      {/* Bestätigungs-Modal (Pausieren, Fortsetzen, Kündigen, Preiseintrag löschen) */}
+      {modal && (
+        <ConfirmModal
+          title={modal.title}
+          body={modal.body}
+          dangerous={modal.dangerous}
+          confirmText={modal.confirmText}
+          onConfirm={modal.onConfirm}
+          onCancel={() => setModal(null)}
+        />
+      )}
+
+      {/* Info/Fehler-Modal — API-Fehlermeldungen als Overlay */}
+      {infoModal && (
+        <InfoModal
+          title={infoModal.title}
+          body={infoModal.body}
+          onClose={() => setInfoModal(null)}
+        />
+      )}
 
       {/* Zurück-Navigation */}
       <button className="detail-back-btn" onClick={() => navigate('/subscriptions')}>
@@ -151,21 +288,12 @@ export default function SubscriptionDetailPage() {
 
       {/* Kopfbereich: Logo + Name + Status */}
       <div className="detail-header">
-
-        {/* Logo-Bereich: zeigt Bild oder Fallback-Buchstaben, Upload-Button unten-rechts */}
         <div className="detail-logo-wrap">
           {sub.logo_url ? (
-            <img
-              src={getLogoUrl(sub.logo_url)!}
-              alt={`${sub.name} Logo`}
-              className="detail-logo-img"
-            />
+            <img src={getLogoUrl(sub.logo_url)!} alt={`${sub.name} Logo`} className="detail-logo-img" />
           ) : (
-            <div className="detail-logo-fallback">
-              {sub.name.charAt(0).toUpperCase()}
-            </div>
+            <div className="detail-logo-fallback">{sub.name.charAt(0).toUpperCase()}</div>
           )}
-          {/* Versteckter File-Input — wird per Button-Klick ausgelöst */}
           <input
             ref={fileInputRef}
             type="file"
@@ -186,19 +314,36 @@ export default function SubscriptionDetailPage() {
         <div className="detail-header-info">
           <h1 className="detail-name">{sub.name}</h1>
           <StatusBadge status={sub.status} />
+          {/* Badge für angekündigte Preisänderung */}
+          {futurePrice && (
+            <span className="detail-price-announcement">
+              Preisänderung ab {formatDate(futurePrice.valid_from)}: {formatAmount(futurePrice.amount)} €
+            </span>
+          )}
           {logoError && <p className="detail-logo-error">{logoError}</p>}
         </div>
-
       </div>
 
-      {/* Kostenkarten — drei Kennzahlen nebeneinander */}
+      {/* Kostenkennzahlen — vier Karten (v0.2.3) */}
       <div className="detail-cost-cards">
-        <CostCard label="Monatlich" amount={sub.monthly_cost_normalized} />
-        <CostCard label="Jährlich" amount={sub.yearly_cost_normalized} />
         <CostCard
-          label="Bisher gezahlt"
-          amount={sub.total_paid_estimate}
-          hint="Schätzung auf Basis des aktuellen Preises"
+          label="Monatlich"
+          valueStr={`${formatAmount(sub.monatlich)} €`}
+        />
+        <CostCard
+          label="Dieses Jahr"
+          valueStr={`${formatAmount(sub.dieses_kalenderjahr)} €`}
+          hint="inkl. Preisankündigungen"
+        />
+        <CostCard
+          label="Intervalle"
+          valueStr={String(sub.intervalle)}
+          hint="Zahlungsperioden seit Beginn"
+        />
+        <CostCard
+          label="Tatsächlich ~"
+          valueStr={`${formatAmount(sub.tatsaechlich)} €`}
+          hint="Summe bezahlter Perioden"
         />
       </div>
 
@@ -216,21 +361,58 @@ export default function SubscriptionDetailPage() {
           <dd>{formatDate(sub.started_on)}</dd>
 
           <dt>Nächste Fälligkeit</dt>
-          <dd>{formatDate(sub.next_due_date)}</dd>
-
-          {sub.suspended_at && (
-            <>
-              <dt>Pausiert seit</dt>
-              <dd>{formatDate(sub.suspended_at)}</dd>
-            </>
-          )}
-          {sub.access_until && (
-            <>
-              <dt>Zugang bis</dt>
-              <dd>{formatDate(sub.access_until)}</dd>
-            </>
-          )}
+          {/* next_due_date kann null sein wenn started_on in der Zukunft liegt */}
+          <dd>{sub.next_due_date ? formatDate(sub.next_due_date) : '—'}</dd>
         </dl>
+      </div>
+
+      {/* Preisänderung */}
+      <div className="detail-card">
+        <div className="detail-section-header">
+          <h2 className="detail-section-title">Preisänderung</h2>
+          {!showPriceForm && (
+            <button className="btn-outline-sm" onClick={() => setShowPriceForm(true)}>
+              Preis ändern
+            </button>
+          )}
+        </div>
+
+        {showPriceForm && (
+          <form className="detail-price-form" onSubmit={handlePriceChange}>
+            <div className="detail-price-form-row">
+              {/* type="text" damit Komma als Dezimaltrennzeichen akzeptiert wird */}
+              <input
+                className="subs-input subs-input-sm"
+                placeholder="Neuer Betrag (z. B. 12,99)"
+                value={priceForm.amount}
+                onChange={e => setPriceForm(f => ({ ...f, amount: e.target.value }))}
+                required
+                autoFocus
+              />
+              <input
+                className="subs-input subs-input-sm"
+                type="date"
+                title="Wirkungsdatum (Vergangenheit, heute oder Zukunft)"
+                value={priceForm.valid_from}
+                onChange={e => setPriceForm(f => ({ ...f, valid_from: e.target.value }))}
+                required
+              />
+            </div>
+            {priceError && <p className="detail-notes-error">{priceError}</p>}
+            <div className="detail-notes-actions">
+              <button type="submit" className="btn-primary-sm" disabled={priceLoading}>
+                {priceLoading ? '…' : 'Speichern'}
+              </button>
+              <button
+                type="button"
+                className="btn-outline-sm"
+                onClick={() => { setShowPriceForm(false); setPriceForm({ amount: '', valid_from: '' }); setPriceError(null) }}
+              >
+                Abbrechen
+              </button>
+            </div>
+          </form>
+        )}
       </div>
 
       {/* Notizen */}
@@ -272,7 +454,7 @@ export default function SubscriptionDetailPage() {
         )}
       </div>
 
-      {/* Preishistorie (Slice E) */}
+      {/* Preishistorie */}
       <div className="detail-card">
         <h2 className="detail-section-title">Preishistorie</h2>
         {priceHistory.length === 0 ? (
@@ -283,6 +465,7 @@ export default function SubscriptionDetailPage() {
               <tr>
                 <th>Gültig ab</th>
                 <th>Betrag</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -290,6 +473,27 @@ export default function SubscriptionDetailPage() {
                 <tr key={entry.id} className={i === 0 ? 'detail-ph-current' : ''}>
                   <td>{formatDate(entry.valid_from)}</td>
                   <td>{formatAmount(entry.amount)} €</td>
+                  <td className="detail-ph-actions">
+                    <button
+                      className="ph-delete-btn"
+                      title={
+                        priceHistory.length <= 1
+                          ? 'Letzter Eintrag — kann nicht gelöscht werden'
+                          : 'Eintrag löschen'
+                      }
+                      disabled={priceHistory.length <= 1}
+                      onClick={() => handleDeletePriceEntry(entry)}
+                    >
+                      {/* Papierkorb-Icon (Feather-Style) */}
+                      <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <polyline points="3 6 5 6 21 6" />
+                        <path d="M19 6l-1 14H6L5 6" />
+                        <path d="M10 11v6" />
+                        <path d="M14 11v6" />
+                        <path d="M9 6V4h6v2" />
+                      </svg>
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -297,7 +501,7 @@ export default function SubscriptionDetailPage() {
         )}
       </div>
 
-      {/* Buchungshistorie (Slice G) — nur anzeigen wenn Einträge vorhanden */}
+      {/* Buchungshistorie — nur anzeigen wenn Einträge vorhanden */}
       {scheduledPayments.length > 0 && (
         <div className="detail-card">
           <h2 className="detail-section-title">Buchungshistorie</h2>
@@ -313,7 +517,8 @@ export default function SubscriptionDetailPage() {
               {scheduledPayments.map(entry => (
                 <tr key={entry.id} className={`detail-payment-${entry.status}`}>
                   <td>{formatDate(entry.due_date)}</td>
-                  <td>{formatAmount(entry.amount)} €</td>
+                  {/* amount ist null bei pausierten Perioden */}
+                  <td>{entry.amount ? `${formatAmount(entry.amount)} €` : '—'}</td>
                   <td>
                     <span className={`detail-payment-badge detail-payment-badge--${entry.status}`}>
                       {PAYMENT_STATUS_LABELS[entry.status]}
@@ -336,6 +541,11 @@ export default function SubscriptionDetailPage() {
         {sub.status === 'suspended' && (
           <button className="btn-outline-sm detail-btn-resume" onClick={handleResume}>
             Fortsetzen
+          </button>
+        )}
+        {sub.status !== 'canceled' && (
+          <button className="btn-danger" onClick={handleCancel}>
+            Abo kündigen
           </button>
         )}
       </div>

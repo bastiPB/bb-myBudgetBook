@@ -1,6 +1,7 @@
 // Alle API-Aufrufe rund um Abos.
 import type {
   OverviewRead,
+  PriceChangeRequest,
   PriceHistoryEntry,
   ScheduledPaymentEntry,
   SubscriptionCreate,
@@ -73,6 +74,21 @@ export async function resumeSubscription(id: string): Promise<SubscriptionRead> 
   return apiFetch<SubscriptionRead>(`/subscriptions/${id}/resume`, { method: 'POST' })
 }
 
+// Preisänderung eintragen — valid_from darf Vergangenheit, heute oder Zukunft sein.
+// Gibt aktualisiertes SubscriptionDetail zurück (inkl. neuer Kennzahlen).
+export async function priceChange(id: string, payload: PriceChangeRequest): Promise<SubscriptionDetail> {
+  return apiFetch<SubscriptionDetail>(`/subscriptions/${id}/price-change`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+// Abo endgültig kündigen — Status wird auf 'canceled' gesetzt.
+// Gibt aktualisiertes SubscriptionDetail zurück.
+export async function cancelSubscription(id: string): Promise<SubscriptionDetail> {
+  return apiFetch<SubscriptionDetail>(`/subscriptions/${id}/cancel`, { method: 'POST' })
+}
+
 // Abo löschen (Hard Delete).
 export async function deleteSubscription(id: string): Promise<void> {
   return apiFetch<void>(`/subscriptions/${id}`, { method: 'DELETE' })
@@ -81,6 +97,14 @@ export async function deleteSubscription(id: string): Promise<void> {
 // Preishistorie eines Abos laden (Slice E) — neuester Eintrag zuerst.
 export async function getPriceHistory(id: string): Promise<PriceHistoryEntry[]> {
   return apiFetch<PriceHistoryEntry[]>(`/subscriptions/${id}/price-history`)
+}
+
+// Einzelnen Preishistorie-Eintrag löschen.
+// Schlägt fehl (409) wenn es der letzte Eintrag ist oder Buchungen betroffen sind.
+export async function deletePriceHistoryEntry(subscriptionId: string, entryId: string): Promise<void> {
+  return apiFetch<void>(`/subscriptions/${subscriptionId}/price-history/${entryId}`, {
+    method: 'DELETE',
+  })
 }
 
 // Soll-Buchungen eines Abos laden (Slice G) — neueste Buchung zuerst.

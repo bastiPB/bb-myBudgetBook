@@ -19,7 +19,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from app.exceptions import ForbiddenError, InvalidSubscriptionStatusError, SubscriptionNotFoundError
-from app.models.subscription import Subscription, SubscriptionPriceHistory, SubscriptionStatus
+from app.models.subscription import Subscription, SubscriptionPauseHistory, SubscriptionPriceHistory, SubscriptionStatus
 from app.schemas.subscription import SubscriptionCreate, SubscriptionUpdate, SuspendPayload
 from app.services.subscriptions import (
     create_subscription,
@@ -37,15 +37,12 @@ def make_active_subscription(user_id: uuid.UUID | None = None) -> Subscription:
         user_id=user_id or uuid.uuid4(),
         name="Test-Abo",
         amount=Decimal("9.99"),
-        next_due_date=date.today() + timedelta(days=30),
         interval="monthly",
     )
     sub.status = SubscriptionStatus.active
     sub.started_on = date.today()
     sub.notes = None
     sub.logo_url = None
-    sub.suspended_at = None
-    sub.access_until = None
     return sub
 
 
@@ -72,7 +69,6 @@ class TestSubscriptionCreateSchema:
         payload = SubscriptionCreate(
             name="Test",
             amount=Decimal("9.99"),
-            next_due_date=date.today() + timedelta(days=30),
             started_on=date.today(),
         )
         assert payload.started_on == date.today()
@@ -83,11 +79,11 @@ class TestSubscriptionCreateSchema:
         payload = SubscriptionCreate(
             name="Test",
             amount=Decimal("9.99"),
-            next_due_date=date.today() + timedelta(days=30),
             started_on=past,
         )
         assert payload.started_on == past
 
+    @pytest.mark.skip(reason="L-04 aufgehoben in v0.2.3 — started_on darf in der Zukunft liegen (Abo vorausbuchen)")
     def test_started_on_zukunft_wirft_fehler(self) -> None:
         """Ein Datum in der Zukunft als started_on soll einen Fehler werfen."""
         future = date.today() + timedelta(days=1)
@@ -95,12 +91,12 @@ class TestSubscriptionCreateSchema:
             SubscriptionCreate(
                 name="Test",
                 amount=Decimal("9.99"),
-                next_due_date=date.today() + timedelta(days=30),
                 started_on=future,
             )
         # Pydantic wirft ValidationError — wir prüfen nur dass es einen Fehler gab
         assert "Abschlussdatum" in str(exc_info.value)
 
+    @pytest.mark.skip(reason="L-04 aufgehoben in v0.2.3 — started_on darf in der Zukunft liegen (Abo vorausbuchen)")
     def test_started_on_zukunft_als_string_wirft_fehler(self) -> None:
         """
         started_on als ISO-String in der Zukunft muss ebenfalls abgelehnt werden.
@@ -115,7 +111,6 @@ class TestSubscriptionCreateSchema:
             SubscriptionCreate(
                 name="Test",
                 amount=Decimal("9.99"),
-                next_due_date=date.today() + timedelta(days=30),
                 started_on="2099-01-01",  # ISO-String wie er aus JSON käme
             )
         assert "Abschlussdatum" in str(exc_info.value)
@@ -125,7 +120,6 @@ class TestSubscriptionCreateSchema:
         payload = SubscriptionCreate(
             name="Test",
             amount=Decimal("9.99"),
-            next_due_date=date.today() + timedelta(days=30),
         )
         # Kein started_on → None — der Service setzt dann today()
         assert payload.started_on is None
@@ -153,7 +147,6 @@ class TestCreateSubscription:
         payload = SubscriptionCreate(
             name="Netflix",
             amount=Decimal("9.99"),
-            next_due_date=date.today() + timedelta(days=30),
         )
 
         create_subscription(session, user_id, payload)
@@ -174,7 +167,6 @@ class TestCreateSubscription:
         payload = SubscriptionCreate(
             name="Spotify",
             amount=Decimal("4.99"),
-            next_due_date=date.today() + timedelta(days=15),
             started_on=past,
         )
 
@@ -199,19 +191,22 @@ class TestSuspendSubscription:
         result = suspend_subscription(session, sub.id, user_id, SuspendPayload())
 
         assert result.status == SubscriptionStatus.suspended
-        assert result.suspended_at == date.today()
         assert session.commit.called
 
     def test_suspend_setzt_access_until_wenn_angegeben(self) -> None:
-        """access_until wird korrekt übernommen."""
+        """access_until wird in SubscriptionPauseHistory geschrieben (v0.2.3)."""
         user_id = uuid.uuid4()
         sub = make_active_subscription(user_id)
         session = make_mock_session(sub)
         access_date = date.today() + timedelta(days=14)
 
-        result = suspend_subscription(session, sub.id, user_id, SuspendPayload(access_until=access_date))
+        suspend_subscription(session, sub.id, user_id, SuspendPayload(access_until=access_date))
 
-        assert result.access_until == access_date
+        # In v0.2.3: access_until nicht mehr auf Subscription, sondern in PauseHistory
+        added_objects = [c[0][0] for c in session.add.call_args_list]
+        pause_entries = [o for o in added_objects if isinstance(o, SubscriptionPauseHistory)]
+        assert len(pause_entries) == 1
+        assert pause_entries[0].access_until == access_date
 
     def test_suspend_bereits_suspendiertes_abo_wirft_fehler(self) -> None:
         """Ein bereits suspendiertes Abo kann nicht nochmals suspendiert werden."""
@@ -247,40 +242,18 @@ class TestSuspendSubscription:
 class TestUpdateSubscriptionPriceHistory:
     """Prüft ob bei amount-Änderung ein price_history-Eintrag geschrieben wird."""
 
+    @pytest.mark.skip(reason="amount aus SubscriptionUpdate entfernt in v0.2.3 — Preisänderungen über POST price-change")
     def test_amount_aenderung_schreibt_price_history_eintrag(self) -> None:
         """
         Wenn amount sich ändert, soll ein SubscriptionPriceHistory-Objekt
         zur Session hinzugefügt werden.
         """
-        user_id = uuid.uuid4()
-        sub = make_active_subscription(user_id)
-        sub.amount = Decimal("9.99")
-        session = make_mock_session(sub)
+        pass  # Logik jetzt in price_change() — price_change-Tests in test_subscriptions_v023.py
 
-        payload = SubscriptionUpdate(amount=Decimal("12.99"))
-        update_subscription(session, sub.id, user_id, payload)
-
-        # session.add() wurde aufgerufen — prüfe ob ein price_history-Eintrag dabei war
-        added_objects = [c[0][0] for c in session.add.call_args_list]
-        price_history_entries = [o for o in added_objects if isinstance(o, SubscriptionPriceHistory)]
-        assert len(price_history_entries) == 1, "Genau ein price_history-Eintrag erwartet"
-        assert price_history_entries[0].amount == Decimal("12.99")
-        assert price_history_entries[0].valid_from == date.today()
-
+    @pytest.mark.skip(reason="amount aus SubscriptionUpdate entfernt in v0.2.3 — Preisänderungen über POST price-change")
     def test_gleicher_amount_schreibt_keinen_price_history_eintrag(self) -> None:
         """Wenn sich amount NICHT ändert, soll kein price_history-Eintrag kommen."""
-        user_id = uuid.uuid4()
-        sub = make_active_subscription(user_id)
-        sub.amount = Decimal("9.99")
-        session = make_mock_session(sub)
-
-        # Gleicher Betrag — keine Änderung
-        payload = SubscriptionUpdate(amount=Decimal("9.99"))
-        update_subscription(session, sub.id, user_id, payload)
-
-        added_objects = [c[0][0] for c in session.add.call_args_list]
-        price_history_entries = [o for o in added_objects if isinstance(o, SubscriptionPriceHistory)]
-        assert len(price_history_entries) == 0, "Kein price_history-Eintrag bei gleichem Betrag erwartet"
+        pass  # Logik jetzt in price_change() — price_change-Tests in test_subscriptions_v023.py
 
     def test_name_aenderung_schreibt_keinen_price_history_eintrag(self) -> None:
         """Nur amount-Änderungen lösen price_history aus — nicht name etc."""

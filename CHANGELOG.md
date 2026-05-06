@@ -5,6 +5,64 @@ Format based on Keep a Changelog.
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-05-05
+
+### Breaking Changes
+- `POST /subscriptions`: Feld `next_due_date` entfernt — wird serverseitig aus `started_on + N × interval` berechnet
+- `PATCH /subscriptions/{id}`: Feld `amount` entfernt → `POST /subscriptions/{id}/price-change` verwenden
+
+### Added
+
+**Neue API-Endpoints**
+- `POST /subscriptions/{id}/price-change`: Preisänderung mit `valid_from` (Vergangenheit/heute/Zukunft)
+- `POST /subscriptions/{id}/cancel`: Abo endgültig kündigen (mit optionalem `access_until`)
+
+**Neue Features**
+- Halbjährliches Abrechnungsintervall (`semiannual` / „Halbjährlich") in allen Berechnungen und der UI
+- Neue Kennzahl „Intervalle": Anzahl der bezahlten Zahlungsperioden seit Abschluss
+- Neue Kennzahl „Dieses Kalenderjahr": Jahresbudget-Ansicht inkl. angekündigter Preise als Projektion
+- Mehrfaches Pausieren und Resumieren über `subscription_pause_history` (beliebig oft, mit History)
+- Preisankündigungen: zukünftige Preise eintragenbar; Ankündigungs-Badge in Übersicht + Detail
+- Abos mit `started_on` in der Zukunft fließen nicht in die monatliche Gesamtsumme ein
+
+**UI**
+- Kennzahlen-Ansicht auf der Detailseite: Monatlich / Dieses Jahr / Intervalle / Tatsächlich ~
+- Preisänderungs-Flow mit Formular und Ankündigungs-Badge
+- Kündigungs-Flow mit Sicherheits-Modal (Abo-Name eintippen zur Bestätigung)
+- Modal-System ersetzt alle `window.confirm()`-Dialoge
+- „Halbjährlich" in der Interval-Auswahl
+- `DELETE /subscriptions/{id}/price-history/{entry_id}`: Einzelnen Preishistorie-Eintrag löschen
+  - Blockiert wenn es der letzte Eintrag ist (Abo braucht mindestens einen Preis)
+  - Blockiert wenn Buchungen im betroffenen Preiszeitraum existieren (präzise Fensterprüfung)
+  - Erlaubt das Löschen „mittlerer" Einträge (z. B. falsche Zukunfts-Ankündigung) wenn keine Buchungen betroffen sind
+- `DuplicatePriceEntryError` (HTTP 409): `POST /price-change` blockiert jetzt doppelte `valid_from`-Einträge — User muss bestehenden Eintrag erst löschen oder bearbeiten
+- `InfoModal`-Komponente (`frontend/src/components/InfoModal.tsx`): wiederverwendbares Info/Fehler-Overlay mit einem OK-Button, nutzt CSS-Klassen von `ConfirmModal`
+- Löschen-Icon (Papierkorb) in der Preishistorie-Tabelle auf der Detailseite mit Bestätigungs-Modal und Fehler-Overlay
+
+### Fixed
+- **BUG-01**: `next_due_date` wird nicht mehr gespeichert — immer frisch aus `started_on + N × interval` berechnet (kein Drift)
+- **BUG-02**: „Tatsächlich"-Algorithmus neu geschrieben — Perioden zählen statt Segment-Mathe; kein `+1`-Hack mehr
+- **BUG-03**: Preisänderungen können rückwirkend und als Ankündigung eingetragen werden (`valid_from` frei wählbar)
+- **BUG-04**: „Tatsächlich" zeigt korrekt 1 Periode wenn Abo am selben Tag angelegt und abgerufen wird (war: 0)
+- **BUG-05**: `next_due_date` fehlte in der Abo-Listenansicht — `SubscriptionRead.model_validate()` liest nur echte DB-Spalten; neue Hilfsfunktion `subscription_to_read()` berechnet das Datum und setzt es in allen List-Endpunkten (list, create, suspend, resume, update, logo)
+- **BUG-06**: Stale `sub.amount` nach Preisankündigung — `monatlich` (Detailseite), `monthly_total` (Übersicht) und Scheduler-Snapshots nutzten `sub.amount` direkt; dieser Wert wurde beim Eintragen einer Zukunfts-Preisänderung nicht automatisch aktualisiert; alle drei Stellen berechnen den Betrag jetzt über `applicable_price()` aus der Preishistorie
+- **BUG-07**: Datum „Nächste Fälligkeit" in der Übersichtstabelle wurde im ISO-Format (`2026-05-15`) angezeigt — `formatDate()` war in `SubscriptionsPage.tsx` nicht importiert und nicht angewendet
+
+### Scheduler
+- Period-basiert: `due_date` = berechneter Fälligkeitstag (nicht mehr `date.today()`)
+- Catch-up: verpasste Perioden bis 60 Tage rückwirkend automatisch nachfüllen
+- `suspended` → `paused`-Einträge generiert (Pause in Buchungshistorie sichtbar)
+- `canceled` → keine neuen Einträge mehr (Tabelle endet sauber)
+- N+1-Query eliminiert: `pause_history` per Bulk-Load für alle Abos
+
+### Database Migrations
+- `j0k1l2m3` — v0.2.3 Kern: neue Tabelle `subscription_pause_history`; Spalten `next_due_date`, `suspended_at`, `access_until` aus `subscriptions` entfernt; `PaymentStatus.paused` + `BillingInterval.semiannual` ergänzt
+- `l2m3n4o5` — `subscription_scheduled_payments.amount` nullable (für `paused`-Einträge ohne Betrag)
+
+### Tests
+- `test_subscriptions_v023.py`: S-01 (relativedelta Ankertag-Recovery), S-03 (Pause + Preiserhöhung in derselben Periode)
+- `test_subscriptions_v022.py`: für v0.2.3 bereinigt (obsolete Felder entfernt, L-04-Aufhebung dokumentiert)
+
 ## [0.2.2] - 2026-05-04
 
 ### Added
