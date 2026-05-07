@@ -131,6 +131,53 @@ class PriceEntryDeleteBlockedError(AppError):
         super().__init__(reason, status_code=409)
 
 
+# --- v0.2.4: Billing History ---
+
+
+class DuplicateBillingHistoryEntryError(AppError):
+    """
+    Wird geworfen, wenn für ein Abo bereits ein Billing-History-Eintrag mit demselben
+    Datum (valid_from) existiert.
+
+    HTTP 409 Conflict = der Eintrag existiert bereits — bitte erst löschen oder bearbeiten.
+    Kein automatisches Überschreiben, um Datenverlust zu vermeiden.
+    """
+
+    def __init__(self, valid_from: str) -> None:
+        super().__init__(
+            f"Für das Datum {valid_from} existiert bereits ein Abrechnungseintrag. "
+            "Bitte den bestehenden Eintrag zuerst löschen oder bearbeiten.",
+            status_code=409,
+        )
+
+
+class BillingHistoryEntryNotFoundError(AppError):
+    """
+    Wird geworfen, wenn ein einzelner Billing-History-Eintrag anhand seiner ID
+    nicht gefunden wird.
+
+    HTTP 404 Not Found = Ressource existiert nicht.
+    """
+
+    def __init__(self) -> None:
+        super().__init__("Abrechnungseintrag nicht gefunden.", status_code=404)
+
+
+class BillingHistoryChangeBlockedError(AppError):
+    """
+    Wird geworfen, wenn ein rückwirkender Intervallwechsel bestehende Scheduled Payments
+    betrifft und der Nutzer dies noch nicht explizit bestätigt hat.
+
+    HTTP 409 Conflict = Aktion möglich, aber nur mit bewusster Bestätigung
+                        (acknowledge_existing_payments=True).
+
+    Der reason-String enthält die Anzahl der betroffenen Buchungen und das Datum.
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason, status_code=409)
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     """Registriert alle globalen Fehler-Handler an der FastAPI-App."""
 

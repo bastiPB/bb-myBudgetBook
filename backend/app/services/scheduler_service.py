@@ -15,17 +15,15 @@ from sqlalchemy.orm import Session
 from app.models.subscription import (
     PaymentStatus,
     Subscription,
+    SubscriptionBillingHistory,
     SubscriptionPauseHistory,
-    SubscriptionPriceHistory,
     SubscriptionScheduledPayment,
     SubscriptionStatus,
 )
 from app.models.user_module_configurations import UserModuleConfiguration
 from app.schemas.module_config import UserModuleConfigRead, UserModuleConfigUpdate
 from app.services.subscriptions import (
-    _MONTHS_PER_PERIOD,
-    applicable_price,
-    compute_due_dates,
+    compute_due_dates_for_billing_history,
     is_in_pause,
 )
 
@@ -162,31 +160,33 @@ def generate_scheduled_payments(session: Session) -> int:
     for p in all_pauses:
         pauses_by_sub[p.subscription_id].append(p)
 
-    # Preishistorie für alle Abos auf einmal laden — analog zu Pause-History.
-    # Wird pro Fälligkeitstag gebraucht um den damals gültigen Preis zu ermitteln.
-    all_prices = session.execute(
-        select(SubscriptionPriceHistory).where(
-            SubscriptionPriceHistory.subscription_id.in_(sub_ids)
+    # Billing-History für alle Abos auf einmal laden (v0.2.4 — ersetzt Preishistorie).
+    # Enthält Betrag, Intervall und Anker — alles was für die Fälligkeitsberechnung nötig ist.
+    all_bh = session.execute(
+        select(SubscriptionBillingHistory).where(
+            SubscriptionBillingHistory.subscription_id.in_(sub_ids)
         )
     ).scalars().all()
-    prices_by_sub: dict[uuid.UUID, list] = defaultdict(list)
-    for p in all_prices:
-        prices_by_sub[p.subscription_id].append(p)
+    bh_by_sub: dict[uuid.UUID, list] = defaultdict(list)
+    for bh in all_bh:
+        bh_by_sub[bh.subscription_id].append(bh)
 
     for sub in subscriptions:
-        # Periodenlänge in Monaten (monthly=1, quarterly=3, semiannual=6, ...)
-        period_months = _MONTHS_PER_PERIOD[sub.interval]
-        # Pause- und Preiseinträge für dieses Abo (leere Liste wenn keine vorhanden)
+        # Billing-History und Pause-Einträge für dieses Abo (leere Liste wenn keine vorhanden)
+        billing_hist = bh_by_sub[sub.id]
         pause_hist = pauses_by_sub[sub.id]
-        price_hist = prices_by_sub[sub.id]
 
-        # Alle Fälligkeitsdaten vom Abo-Beginn bis heute berechnen
-        for due in compute_due_dates(sub.started_on, period_months, today):
-            # Catch-up-Fenster: verpasste Daten die zu weit zurückliegen überspringen
+        # Alle Fälligkeitsdaten aus der Billing-Historie berechnen.
+        # compute_due_dates_for_billing_history() berücksichtigt Intervallwechsel korrekt:
+        # Jedes Segment nutzt seinen eigenen anchor_on und period_months.
+        for due_item in compute_due_dates_for_billing_history(billing_hist, today):
+            due = due_item.due_date
+
+            # Catch-up-Fenster: Fälligkeiten die zu weit in der Vergangenheit liegen überspringen
             if due < cutoff:
                 continue
 
-            # Existiert Eintrag schon? (erster Idempotenz-Schutz)
+            # Existiert Eintrag schon? (erster Idempotenz-Schutz vor DB-Constraint)
             existing = session.execute(
                 select(SubscriptionScheduledPayment).where(
                     SubscriptionScheduledPayment.subscription_id == sub.id,
@@ -194,7 +194,6 @@ def generate_scheduled_payments(session: Session) -> int:
                 )
             ).scalar_one_or_none()
             if existing:
-                # Eintrag existiert bereits — überspringen
                 continue
 
             if is_in_pause(due, pause_hist):
@@ -203,10 +202,10 @@ def generate_scheduled_payments(session: Session) -> int:
                 status = PaymentStatus.paused
                 amount = None
             else:
-                # Betrag aus Preishistorie für diesen Fälligkeitstag — nicht sub.amount.
-                # sub.amount kann stale sein wenn eine Preisankündigung wirksam wurde.
+                # Betrag direkt aus ComputedDue — kein separater Preis-Lookup nötig.
+                # due_item.amount stammt aus dem billing_history-Eintrag des jeweiligen Segments.
                 status = PaymentStatus.pending
-                amount = applicable_price(due, price_hist)
+                amount = due_item.amount
 
             session.add(SubscriptionScheduledPayment(
                 id=uuid.uuid4(),

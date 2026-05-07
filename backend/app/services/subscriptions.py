@@ -16,16 +16,28 @@ from dateutil.relativedelta import relativedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.exceptions import DuplicatePriceEntryError, ForbiddenError, InvalidFileError, InvalidSubscriptionStatusError, PriceEntryDeleteBlockedError, PriceHistoryEntryNotFoundError, SubscriptionNotFoundError
+from app.exceptions import (
+    BillingHistoryChangeBlockedError,
+    BillingHistoryEntryNotFoundError,
+    DuplicateBillingHistoryEntryError,
+    ForbiddenError,
+    InvalidFileError,
+    InvalidSubscriptionStatusError,
+    PriceEntryDeleteBlockedError,
+    PriceHistoryEntryNotFoundError,
+    SubscriptionNotFoundError,
+)
 from app.models.subscription import (
     BillingInterval,
     Subscription,
+    SubscriptionBillingHistory,
     SubscriptionPauseHistory,
     SubscriptionPriceHistory,
     SubscriptionScheduledPayment,
     SubscriptionStatus,
 )
 from app.schemas.subscription import (
+    IntervalChangeRequest,
     PriceChangeRequest,
     SubscriptionRead,
     SubscriptionCreate,
@@ -81,16 +93,32 @@ def _check_ownership(sub: Subscription, user_id: uuid.UUID) -> None:
         raise ForbiddenError()
 
 
-def subscription_to_read(sub: Subscription) -> SubscriptionRead:
+def subscription_to_read(
+    sub: Subscription,
+    billing_history: list | None = None,
+) -> SubscriptionRead:
     """
     Konvertiert ein Subscription-ORM-Objekt in SubscriptionRead mit berechnetem next_due_date.
 
     next_due_date ist keine DB-Spalte — ohne diese Hilfsfunktion bleibt das Feld
     immer None, weil model_validate() nur echte ORM-Attribute liest (BUG-01).
+
+    billing_history (v0.2.4):
+      Wenn übergeben, wird next_due_date aus der Billing-Historie berechnet —
+      das ist korrekt auch nach Intervallwechseln (neuer Anker).
+      Wenn None oder leer, Fallback auf sub.started_on + sub.interval (Snapshot-Felder).
     """
     read = SubscriptionRead.model_validate(sub)
-    # Frisch berechnen damit die UI immer den aktuellen nächsten Fälligkeitstag sieht
-    read.next_due_date = compute_next_due_date(sub.started_on, _MONTHS_PER_PERIOD[sub.interval])
+    today = date.today()
+    cached_next_due = getattr(sub, "_computed_next_due_date", None)
+    if cached_next_due is not None:
+        read.next_due_date = cached_next_due
+    elif billing_history:
+        # Billing-Historie vorhanden: Segmentrechnung berücksichtigt alle Anker und Intervalle
+        read.next_due_date = compute_next_due_date_from_history(billing_history, today)
+    else:
+        # Fallback: snapshot-Felder nutzen (korrekt solange kein Intervallwechsel stattfand)
+        read.next_due_date = compute_next_due_date(sub.started_on, _MONTHS_PER_PERIOD[sub.interval])
     return read
 
 
@@ -99,15 +127,34 @@ def list_subscriptions(session: Session, user_id: uuid.UUID) -> list[Subscriptio
     Gibt alle Abos des eingeloggten Users zurück, sortiert nach Fälligkeitsdatum.
 
     Gibt alle Status zurück (active, suspended, canceled) — die UI kann filtern.
-    Sortierung: in Python via compute_next_due_date, weil next_due_date nicht mehr
-    als Spalte existiert (v0.2.3 / BUG-01 — Datum wird immer frisch berechnet).
+    Sortierung: Billing-Historie per Bulk-Load vorladen, dann compute_next_due_date_from_history.
+    Bulk-Load verhindert N+1-Abfragen (eine Query für alle Historien, nicht eine pro Abo).
     """
     stmt = select(Subscription).where(Subscription.user_id == user_id)
     subs = list(session.execute(stmt).scalars().all())
+    if not subs:
+        return []
+
+    # Billing-Historie für alle Abos auf einmal laden
+    all_ids = [s.id for s in subs]
+    all_bh = session.execute(
+        select(SubscriptionBillingHistory)
+        .where(SubscriptionBillingHistory.subscription_id.in_(all_ids))
+    ).scalars().all()
+    bh_by_sub: dict[uuid.UUID, list] = defaultdict(list)
+    for e in all_bh:
+        bh_by_sub[e.subscription_id].append(e)
+
+    today = date.today()
     # Nach berechnetem Fälligkeitsdatum sortieren — nächste Fälligkeit zuerst
+    for sub in subs:
+        # Merken, damit die Router-Response nicht wieder auf started_on + Snapshot-Intervall
+        # zurueckfaellt und Intervallwechsel in Listenansichten verliert.
+        sub._computed_next_due_date = compute_next_due_date_from_history(bh_by_sub[sub.id], today)
+
     return sorted(
         subs,
-        key=lambda s: compute_next_due_date(s.started_on, _MONTHS_PER_PERIOD[s.interval]),
+        key=lambda s: s._computed_next_due_date,
     )
 
 
@@ -117,6 +164,27 @@ class OverviewResult:
 
     monthly_total: Decimal
     upcoming: list[Subscription]
+
+
+@dataclass
+class ComputedDue:
+    """
+    Eine berechnete Fälligkeit aus der Billing-Historie (v0.2.4).
+
+    Enthält nicht nur das Datum, sondern auch Betrag, Intervall und Herkunft —
+    damit der Scheduler und die Kennzahl-Funktionen keine zweite Datenbankabfrage
+    brauchen um den Preis zu ermitteln.
+
+    due_date:         Fälligkeitstag
+    amount:           Betrag der zugehörigen Abrechnungsperiode
+    interval:         Abrechnungsintervall der zugehörigen Periode
+    billing_entry_id: ID des SubscriptionBillingHistory-Eintrags (für Tracing)
+    """
+
+    due_date: date
+    amount: Decimal
+    interval: BillingInterval
+    billing_entry_id: uuid.UUID | None = None
 
 
 def get_overview(session: Session, user_id: uuid.UUID) -> OverviewResult:
@@ -136,31 +204,30 @@ def get_overview(session: Session, user_id: uuid.UUID) -> OverviewResult:
         if s.status == SubscriptionStatus.active and s.started_on <= today
     ]
 
-    # Preishistorie für alle aktiven Abos auf einmal laden.
+    # Billing-Historie für alle aktiven Abos auf einmal laden (ersetzt Preishistorie).
     # Ohne Bulk-Load wäre es N+1 — eine DB-Abfrage pro Abo.
     active_ids = [s.id for s in active_subs]
-    all_price_entries = session.execute(
-        select(SubscriptionPriceHistory)
-        .where(SubscriptionPriceHistory.subscription_id.in_(active_ids))
+    all_bh = session.execute(
+        select(SubscriptionBillingHistory)
+        .where(SubscriptionBillingHistory.subscription_id.in_(active_ids))
     ).scalars().all()
-    price_hist_by_sub: dict[uuid.UUID, list] = defaultdict(list)
-    for p in all_price_entries:
-        price_hist_by_sub[p.subscription_id].append(p)
+    bh_by_sub: dict[uuid.UUID, list] = defaultdict(list)
+    for e in all_bh:
+        bh_by_sub[e.subscription_id].append(e)
 
-    # Aktuell gültigen Preis aus Preishistorie ableiten — nicht s.amount.
-    # s.amount kann stale sein wenn eine angekündigte Preisänderung wirksam wurde.
-    monthly_total = sum(
-        (applicable_price(today, price_hist_by_sub[s.id]) * _MONTHLY_FACTOR[s.interval]
-         for s in active_subs),
-        Decimal("0"),
-    )
+    # Monatliche Gesamtsumme: Betrag und Intervall aus den heute gültigen Billing Terms.
+    # applicable_billing_terms() wählt den neuesten Eintrag mit valid_from <= today.
+    monthly_total = Decimal("0")
+    for s in active_subs:
+        terms = applicable_billing_terms(today, bh_by_sub[s.id])
+        if terms is not None:
+            monthly_total += terms.amount * _MONTHLY_FACTOR[terms.interval]
 
     # Upcoming: aktive Abos, deren nächster Fälligkeitstag in den nächsten 30 Tagen liegt.
-    # next_due_date wird jetzt berechnet (BUG-01) — nicht mehr aus der DB gelesen.
     cutoff = today + timedelta(days=30)
     upcoming = [
         s for s in active_subs
-        if today <= compute_next_due_date(s.started_on, _MONTHS_PER_PERIOD[s.interval]) <= cutoff
+        if today <= compute_next_due_date_from_history(bh_by_sub[s.id], today) <= cutoff
     ]
 
     return OverviewResult(monthly_total=monthly_total, upcoming=upcoming)
@@ -202,7 +269,7 @@ def compute_due_dates(started_on: date, period_months: int, up_to: date) -> list
 
 def compute_next_due_date(started_on: date, period_months: int) -> date:
     """
-    Gibt den nächsten Fälligkeitstag >= heute zurück.
+    Gibt den naechsten zukuenftigen Faelligkeitstag > heute zurueck.
 
     Immer von started_on aus berechnen — kein Zustand, kein Drift.
     Kann für vergangene Abos viele Iterationen brauchen, bleibt aber korrekt.
@@ -211,7 +278,7 @@ def compute_next_due_date(started_on: date, period_months: int) -> date:
     n = 0
     while True:
         d = started_on + relativedelta(months=n * period_months)
-        if d >= today:
+        if d > today:
             return d
         n += 1
 
@@ -252,74 +319,204 @@ def applicable_price(due_date: date, price_history: list, include_future: bool =
     return max(candidates, key=lambda p: p.valid_from).amount
 
 
+def applicable_billing_terms(
+    due_date: date,
+    billing_history: list,
+    include_future: bool = False,
+):
+    """
+    Gibt den gültigen Billing-History-Eintrag für ein Datum zurück.
+
+    Wählt den Eintrag mit dem größten valid_from, das <= due_date liegt.
+
+    include_future=False (Standard):
+      Nur Einträge bis heute — angekündigte zukünftige Änderungen bleiben unsichtbar.
+      Verwendet für: monthly_total, sub.amount-Snapshot.
+
+    include_future=True:
+      Auch zukünftige Einträge — für Vorschau (dieses Kalenderjahr, price_change Copy-forward).
+
+    Gibt None zurück wenn keine passende Historie vorhanden ist.
+    """
+    today = date.today()
+    candidates = [e for e in billing_history if e.valid_from <= due_date]
+    if not include_future:
+        # Nur Einträge die bis heute bereits wirksam sind
+        candidates = [e for e in candidates if e.valid_from <= today]
+    if not candidates:
+        return None
+    # Letzter gültiger Eintrag = höchstes valid_from <= due_date
+    return max(candidates, key=lambda e: e.valid_from)
+
+
+def compute_due_dates_for_billing_history(
+    billing_history: list,
+    up_to: date,
+) -> list[ComputedDue]:
+    """
+    Gibt alle Fälligkeiten aus der Billing-Historie bis up_to zurück.
+
+    Teilt die Historie in Zeitfenster:
+      [entry.valid_from, next_entry.valid_from)
+
+    Für jedes Fenster werden Fälligkeiten von entry.anchor_on aus berechnet.
+    anchor_on ist der entscheidende Unterschied: bei Preisänderungen bleibt er gleich,
+    bei Intervallwechseln startet er neu (= valid_from des Wechsels).
+
+    Gibt eine nach due_date aufsteigend sortierte Liste von ComputedDue zurück.
+    """
+    if not billing_history:
+        return []
+
+    # Nach Wirkungsdatum aufsteigend sortieren — Segmente müssen chronologisch sein
+    ordered = sorted(billing_history, key=lambda h: h.valid_from)
+    result = []
+
+    for i, entry in enumerate(ordered):
+        segment_start = entry.valid_from
+        # Fenster endet am Beginn des nächsten Eintrags — oder hinter up_to wenn letzter Eintrag
+        segment_end = (
+            ordered[i + 1].valid_from if i + 1 < len(ordered)
+            else up_to + timedelta(days=1)
+        )
+        period_months = _MONTHS_PER_PERIOD[entry.interval]
+
+        # Alle Fälligkeiten von anchor_on aus bis up_to berechnen
+        for due in compute_due_dates(entry.anchor_on, period_months, up_to):
+            # Fälligkeiten vor dem Fenster-Start: gehören zum vorigen Segment
+            if due < segment_start:
+                continue
+            # Fälligkeiten ab dem nächsten Eintrag: gehören zum nächsten Segment
+            if due >= segment_end:
+                continue
+            result.append(ComputedDue(
+                due_date=due,
+                amount=entry.amount,
+                interval=entry.interval,
+                billing_entry_id=entry.id,
+            ))
+
+    return sorted(result, key=lambda d: d.due_date)
+
+
+def compute_next_due_date_from_history(billing_history: list, today: date) -> date:
+    """
+    Gibt die erste zukuenftige Faelligkeit > today zurueck.
+
+    Berücksichtigt alle Segmente und Anker — korrekt auch nach Intervallwechseln.
+    Fallback auf 9999-12-31 wenn billing_history leer ist (kein gültiger Zustand,
+    schützt aber vor Absturz während der Übergangsphase in v0.2.4).
+    """
+    if not billing_history:
+        # Leere Historie ist kein korrekter Zustand — Sentinel damit keine Exception
+        return date(9999, 12, 31)
+
+    # 3 Jahre Vorlauf reichen sicher für biennial (2-Jahres-Intervall)
+    far_future = today + relativedelta(years=3)
+    dues = compute_due_dates_for_billing_history(billing_history, far_future)
+
+    for due in dues:
+        if due.due_date > today:
+            return due.due_date
+
+    # Fallback: ab letztem Anker weiterrechnen (sollte mit 3 Jahren Vorlauf nie eintreten)
+    ordered = sorted(billing_history, key=lambda h: h.valid_from)
+    last = ordered[-1]
+    period_months = _MONTHS_PER_PERIOD[last.interval]
+    n = 0
+    while True:
+        d = last.anchor_on + relativedelta(months=n * period_months)
+        if d > today:
+            return d
+        n += 1
+
+
+def sync_subscription_billing_snapshot(
+    sub: Subscription,
+    billing_history: list,
+) -> None:
+    """
+    Setzt sub.amount und sub.interval auf die heute gültigen Billing Terms.
+
+    Wird nach jedem Schreiben oder Löschen eines Billing-History-Eintrags aufgerufen.
+    Zukünftige Einträge (valid_from > heute) dürfen den Snapshot noch nicht verändern.
+
+    Regel:
+      current = neuester Eintrag mit valid_from <= today
+      sub.amount   = current.amount
+      sub.interval = current.interval
+    """
+    current = applicable_billing_terms(date.today(), billing_history, include_future=False)
+    if current is not None:
+        sub.amount = current.amount
+        sub.interval = current.interval
+
+
 def compute_tatsaechlich(
-    started_on: date,
-    period_months: int,
-    price_history: list,
+    billing_history: list,
     pause_history: list,
 ) -> Decimal:
     """
-    Berechnet die tatsächlich entstandenen Kosten seit Abo-Beginn.
+    Berechnet die tatsächlich entstandenen Kosten seit Abo-Beginn (v0.2.4).
 
-    Zählt alle nicht-pausierten Perioden bis heute und multipliziert
-    jede mit dem damals gültigen Preis. Fixiert BUG-02 und BUG-04:
+    Summiert alle nicht-pausierten Fälligkeiten bis heute aus der Billing-Historie.
+    Betrag und Intervall kommen direkt aus ComputedDue — kein separater Preislookup.
+
+    Fixiert BUG-02 und BUG-04:
     - kein Segment-Mathe mit Monatsdifferenzen
     - Startperiode zählt immer (auch wenn Abo heute angelegt wurde)
     """
     today = date.today()
     total = Decimal("0")
-    for due in compute_due_dates(started_on, period_months, today):
-        if is_in_pause(due, pause_history):
+    for due in compute_due_dates_for_billing_history(billing_history, today):
+        if is_in_pause(due.due_date, pause_history):
             continue
-        total += applicable_price(due, price_history, include_future=False)
+        total += due.amount
     return total
 
 
 def compute_intervalle(
-    started_on: date,
-    period_months: int,
+    billing_history: list,
     pause_history: list,
 ) -> int:
     """
-    Gibt die Anzahl nicht-pausierter Zahlungsperioden seit Abo-Beginn zurück.
+    Gibt die Anzahl nicht-pausierter Zahlungsperioden seit Abo-Beginn zurück (v0.2.4).
 
     Entspricht "wie oft hat der User dieses Abo bereits bezahlt".
+    Zählt alle nicht-pausierten Fälligkeiten bis heute aus der Billing-Historie.
     """
     today = date.today()
     return sum(
-        1 for due in compute_due_dates(started_on, period_months, today)
-        if not is_in_pause(due, pause_history)
+        1 for due in compute_due_dates_for_billing_history(billing_history, today)
+        if not is_in_pause(due.due_date, pause_history)
     )
 
 
 def compute_dieses_kalenderjahr(
-    started_on: date,
-    period_months: int,
-    price_history: list,
+    billing_history: list,
     pause_history: list,
 ) -> Decimal:
     """
-    Berechnet die Abo-Kosten im laufenden Kalenderjahr (1.1. bis 31.12.).
+    Berechnet die Abo-Kosten im laufenden Kalenderjahr (1.1. bis 31.12.) (v0.2.4).
 
-    Vergangene Perioden: tatsächliche Preise.
-    Zukünftige Perioden: angekündigte Preise eingerechnet (Projektion).
-    Pausierte Perioden: werden übersprungen.
+    Vergangene und zukünftige Billing-Einträge fließen beide ein — da alle Einträge
+    (auch angekündigte Zukunfts-Intervalle) im billing_history enthalten sind, ergibt
+    sich der Projektions-Charakter automatisch ohne ein separates include_future-Flag.
+    Pausierte Perioden werden übersprungen.
 
-    Vorschau-Charakter: gibt einen Jahresbudget-Orientierungswert, der
-    auch Preisankündigungen berücksichtigt die noch nicht wirksam sind.
+    Gibt einen Jahresbudget-Orientierungswert zurück.
     """
     today = date.today()
     jan_1 = date(today.year, 1, 1)
     dez_31 = date(today.year, 12, 31)
     total = Decimal("0")
-    for due in compute_due_dates(started_on, period_months, dez_31):
+    for due in compute_due_dates_for_billing_history(billing_history, dez_31):
         # Perioden vor dem 1. Januar dieses Jahres überspringen
-        if due < jan_1:
+        if due.due_date < jan_1:
             continue
-        if is_in_pause(due, pause_history):
+        if is_in_pause(due.due_date, pause_history):
             continue
-        # include_future=True: Preisankündigungen als Projektion einrechnen
-        total += applicable_price(due, price_history, include_future=True)
+        total += due.amount
     return total
 
 
@@ -339,13 +536,11 @@ def get_subscription_detail(
     sub = _get_subscription_or_raise(session, subscription_id)
     _check_ownership(sub, user_id)
 
-    period_months = _MONTHS_PER_PERIOD[sub.interval]
-
-    # Preishistorie laden — aufsteigend damit applicable_price korrekt arbeitet
-    price_hist = list(session.execute(
-        select(SubscriptionPriceHistory)
-        .where(SubscriptionPriceHistory.subscription_id == subscription_id)
-        .order_by(SubscriptionPriceHistory.valid_from)
+    # Billing-Historie laden (ersetzt Preishistorie ab v0.2.4)
+    billing_hist = list(session.execute(
+        select(SubscriptionBillingHistory)
+        .where(SubscriptionBillingHistory.subscription_id == subscription_id)
+        .order_by(SubscriptionBillingHistory.valid_from)
     ).scalars().all())
 
     # Pausenhistorie laden — alle Pausen dieses Abos
@@ -354,15 +549,20 @@ def get_subscription_detail(
         .where(SubscriptionPauseHistory.subscription_id == subscription_id)
     ).scalars().all())
 
-    # Alle vier Kennzahlen berechnen (Algorithmen aus Chunk 3)
     today = date.today()
-    # Aktuell gültiger Preis aus Preishistorie — nicht sub.amount (stale nach Preisankündigung)
-    current_price = applicable_price(today, price_hist)
-    monatlich = (current_price * _MONTHLY_FACTOR[sub.interval]).quantize(Decimal("0.01"))
-    tatsaechlich = compute_tatsaechlich(sub.started_on, period_months, price_hist, pause_hist)
-    intervalle = compute_intervalle(sub.started_on, period_months, pause_hist)
-    dieses_kj = compute_dieses_kalenderjahr(sub.started_on, period_months, price_hist, pause_hist)
-    next_due = compute_next_due_date(sub.started_on, period_months)
+
+    # Aktuell gültige Billing Terms — für monatlich-Kennzahl
+    # applicable_billing_terms() liefert Betrag und Intervall zusammen
+    current_terms = applicable_billing_terms(today, billing_hist)
+    if current_terms is not None:
+        monatlich = (current_terms.amount * _MONTHLY_FACTOR[current_terms.interval]).quantize(Decimal("0.01"))
+    else:
+        monatlich = Decimal("0")
+
+    tatsaechlich = compute_tatsaechlich(billing_hist, pause_hist)
+    intervalle = compute_intervalle(billing_hist, pause_hist)
+    dieses_kj = compute_dieses_kalenderjahr(billing_hist, pause_hist)
+    next_due = compute_next_due_date_from_history(billing_hist, today)
 
     # Erst Basisfelder aus dem ORM lesen, dann berechnete Pflichtfelder ergänzen
     # und als komplettes Payload gegen SubscriptionDetail validieren.
@@ -399,6 +599,31 @@ def get_price_history(
         .order_by(SubscriptionPriceHistory.valid_from.desc())
     )
     return list(session.execute(stmt).scalars().all())
+
+
+def get_billing_history(
+    session: Session,
+    subscription_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> list[SubscriptionBillingHistory]:
+    """
+    Gibt die Billing-Historie eines Abos zurück, absteigend nach Datum (neueste zuerst).
+
+    Jeder Eintrag beschreibt ab wann (valid_from) welcher Betrag, welches Intervall
+    und welcher Fälligkeitsanker (anchor_on) gilt.
+
+    Wirft SubscriptionNotFoundError wenn das Abo nicht existiert.
+    Wirft ForbiddenError wenn das Abo einem anderen User gehört.
+    """
+    sub = _get_subscription_or_raise(session, subscription_id)
+    _check_ownership(sub, user_id)
+
+    return list(session.execute(
+        select(SubscriptionBillingHistory)
+        .where(SubscriptionBillingHistory.subscription_id == subscription_id)
+        # Neuester Eintrag zuerst — aktuelle Konditionen erscheinen oben in der UI
+        .order_by(SubscriptionBillingHistory.valid_from.desc())
+    ).scalars().all())
 
 
 def delete_price_history_entry(
@@ -484,6 +709,85 @@ def delete_price_history_entry(
     session.commit()
 
 
+def delete_billing_history_entry(
+    session: Session,
+    subscription_id: uuid.UUID,
+    user_id: uuid.UUID,
+    entry_id: uuid.UUID,
+) -> None:
+    """
+    Löscht einen einzelnen Billing-History-Eintrag — mit Sicherheitsprüfungen (v0.2.4).
+
+    Geblockt wenn:
+    - Es der einzige verbleibende Eintrag ist (Abo ohne Billing-Terms ist ungültig).
+    - Es bereits Buchungen für den Zeitraum gibt, in dem dieser Eintrag galt.
+
+    Zeitfenster-Prüfung:
+    Nicht jede Buchung nach entry.valid_from ist betroffen — nur die im Fenster
+    [entry.valid_from, nächster_eintrag.valid_from). Ein mittlerer Eintrag ohne
+    Buchungen (z. B. falsche Ankündigung) kann so auch dann gelöscht werden,
+    wenn spätere Einträge mit Buchungen existieren.
+    """
+    sub = _get_subscription_or_raise(session, subscription_id)
+    _check_ownership(sub, user_id)
+
+    # Gesuchten Eintrag laden und Zugehörigkeit prüfen
+    entry = session.execute(
+        select(SubscriptionBillingHistory).where(
+            SubscriptionBillingHistory.id == entry_id,
+            SubscriptionBillingHistory.subscription_id == subscription_id,
+        )
+    ).scalar_one_or_none()
+    if entry is None:
+        raise BillingHistoryEntryNotFoundError()
+
+    # Alle Einträge des Abos laden — für Einzel-Check und Snapshot-Update
+    all_entries = list(session.execute(
+        select(SubscriptionBillingHistory).where(
+            SubscriptionBillingHistory.subscription_id == subscription_id
+        )
+    ).scalars().all())
+
+    # Letzter Eintrag? Dann darf er nicht gelöscht werden.
+    if len(all_entries) <= 1:
+        raise PriceEntryDeleteBlockedError(
+            "Der einzige Abrechnungseintrag kann nicht gelöscht werden — "
+            "ein Abo braucht mindestens einen Eintrag."
+        )
+
+    # Zeitfenster bestimmen, in dem dieser Eintrag die gültigen Konditionen beschrieb.
+    # Falls ein späterer Eintrag existiert, endet das Fenster dort.
+    later = [e for e in all_entries if e.valid_from > entry.valid_from]
+    next_valid_from = min(e.valid_from for e in later) if later else None
+
+    # Buchungen im Fenster suchen — nur die sind tatsächlich von dieser Löschung betroffen
+    stmt = select(SubscriptionScheduledPayment).where(
+        SubscriptionScheduledPayment.subscription_id == subscription_id,
+        SubscriptionScheduledPayment.due_date >= entry.valid_from,
+    )
+    if next_valid_from is not None:
+        stmt = stmt.where(SubscriptionScheduledPayment.due_date < next_valid_from)
+
+    affected = session.execute(stmt).scalar_one_or_none()
+    if affected is not None:
+        raise PriceEntryDeleteBlockedError(
+            "Dieser Abrechnungseintrag kann nicht gelöscht werden, da bereits Buchungen "
+            "für den betroffenen Zeitraum existieren."
+        )
+
+    remaining = [e for e in all_entries if e.id != entry.id]
+    if sub.started_on <= date.today() and applicable_billing_terms(date.today(), remaining) is None:
+        raise PriceEntryDeleteBlockedError(
+            "Dieser Abrechnungseintrag kann nicht geloescht werden, weil danach "
+            "kein aktuell gueltiger Abrechnungseintrag mehr existieren wuerde."
+        )
+
+    session.delete(entry)
+    # Snapshot synchronisieren: sub.amount und sub.interval nach Löschung aktualisieren
+    sync_subscription_billing_snapshot(sub, remaining)
+    session.commit()
+
+
 def get_scheduled_payments(
     session: Session,
     subscription_id: uuid.UUID,
@@ -535,54 +839,33 @@ def create_subscription(
     session.add(sub)
     session.flush()  # flush statt commit: sub.id ist jetzt verfügbar, Transaktion noch offen
 
-    # Initialen Preis sofort in die Preishistorie schreiben.
+    # Initialen Billing-History-Eintrag schreiben (v0.2.4 — ersetzt _record_price_change).
     #
-    # Warum hier und nicht erst beim ersten update?
-    # Ohne diesen Eintrag ist der Startpreis nach der ersten Preisänderung unwiederbringlich verloren:
-    #   Anlage:    9,99 € — kein Eintrag in history → nach Änderung auf 12,99 € unbekannt
+    # Warum hier und nicht erst beim ersten price_change?
+    # Ohne diesen Eintrag fehlt der Startpreis nach der ersten Änderung unwiederbringlich:
+    #   Anlage:      9,99 € — kein Eintrag → nach Änderung auf 12,99 € unbekannt
     #   1. Änderung → {12,99, März}
     #   2. Änderung → {14,99, Mai}
     # History: [{12.99, März}, {14.99, Mai}] — Jan–Feb fehlen komplett
     #
-    # Mit diesem Fix:
+    # Mit diesem Eintrag:
     # History: [{9.99, started_on}, {12.99, März}, {14.99, Mai}] → lückenlose Zeitleiste
-    # valid_from = started_on (nicht heute) damit rückwirkende Abos korrekt erfasst werden.
-    _record_price_change(session, sub, sub.amount, valid_from=started_on)
+    #
+    # anchor_on = started_on: der Fälligkeitsrhythmus startet am Abschluss-Datum.
+    # valid_from = started_on: rückwirkend angelegte Abos werden korrekt erfasst.
+    initial_bh = SubscriptionBillingHistory(
+        subscription_id=sub.id,
+        amount=sub.amount,
+        interval=sub.interval,
+        valid_from=started_on,
+        anchor_on=started_on,
+    )
+    session.add(initial_bh)
 
     session.commit()
     session.refresh(sub)
     return sub
 
-
-def _record_price_change(
-    session: Session,
-    sub: Subscription,
-    new_amount: Decimal,
-    valid_from: date | None = None,
-) -> None:
-    """
-    Schreibt einen Preishistorie-Eintrag.
-
-    Wird von zwei Stellen gerufen:
-    - create_subscription: initialer Eintrag mit valid_from = started_on
-    - price_change:        Eintrag mit frei wählbarem valid_from (Vergangenheit/Zukunft)
-
-    Warum valid_from als Parameter?
-    Beim Anlegen soll der Startpreis ab started_on gelten, nicht ab heute.
-    Beim price_change-Endpoint wählt der User selbst wann der neue Preis gilt.
-
-    Semantik der Tabelle (valid_from-only-Design):
-    Jeder Eintrag bedeutet „ab diesem Datum gilt Preis X".
-    Aufeinanderfolgende Einträge bilden eine lückenlose Zeitleiste:
-      {9.99, 2026-01-01} → {12.99, 2026-03-01} → {14.99, 2026-05-01}
-    """
-    entry = SubscriptionPriceHistory(
-        subscription_id=sub.id,
-        amount=new_amount,
-        # Explizites Datum wenn übergeben (Abschluss), sonst heute (Änderung)
-        valid_from=valid_from if valid_from is not None else date.today(),
-    )
-    session.add(entry)
 
 
 def update_subscription(
@@ -742,37 +1025,120 @@ def price_change(
     payload: PriceChangeRequest,
 ) -> SubscriptionDetail:
     """
-    Trägt eine Preisänderung mit frei wählbarem Gültigkeitsdatum ein (v0.2.3).
+    Trägt eine Preisänderung mit frei wählbarem Gültigkeitsdatum ein (v0.2.4).
+
+    Schreibt einen Eintrag in subscription_billing_history (nicht mehr price_history).
+    Copy-forward-Regel: Intervall und Anker werden vom geltenden Vorgänger-Eintrag übernommen —
+    eine Preisänderung ändert nur den Betrag, der Zahlungsrhythmus bleibt gleich.
 
     valid_from darf in der Vergangenheit (Korrektur), heute oder Zukunft (Ankündigung) liegen.
-    Schreibt einen Eintrag in subscription_price_history und aktualisiert sub.amount
-    wenn valid_from <= heute (der neue Preis ist bereits wirksam).
     Gibt die vollständige SubscriptionDetail mit neu berechneten Kennzahlen zurück.
     """
     sub = _get_subscription_or_raise(session, subscription_id)
     _check_ownership(sub, user_id)
 
+    # Aktuelle Billing-Historie laden — für Duplikat-Check und Copy-forward-Regel
+    billing_hist = list(session.execute(
+        select(SubscriptionBillingHistory)
+        .where(SubscriptionBillingHistory.subscription_id == subscription_id)
+    ).scalars().all())
+
     # Duplikat-Check: existiert bereits ein Eintrag für dieses Datum?
-    # Kein stilles Überschreiben — der User muss den alten Eintrag erst löschen oder bearbeiten.
-    existing = session.execute(
-        select(SubscriptionPriceHistory).where(
-            SubscriptionPriceHistory.subscription_id == sub.id,
-            SubscriptionPriceHistory.valid_from == payload.valid_from,
-        )
-    ).scalar_one_or_none()
-    if existing is not None:
-        raise DuplicatePriceEntryError(payload.valid_from.isoformat())
+    # Kein stilles Überschreiben — der User muss den alten Eintrag erst löschen.
+    if any(e.valid_from == payload.valid_from for e in billing_hist):
+        raise DuplicateBillingHistoryEntryError(payload.valid_from.isoformat())
 
-    # Preishistorie-Eintrag schreiben — mit dem vom User gewählten Datum
-    _record_price_change(session, sub, payload.amount, valid_from=payload.valid_from)
+    # Copy-forward-Regel: Intervall und Anker vom geltenden Vorgänger-Eintrag übernehmen.
+    # include_future=True: auch angekündigte (zukünftige) Einträge einbeziehen —
+    # eine Preisänderung nach einer bereits eingetragenen Ankündigung übernimmt deren Rhythmus.
+    prev = applicable_billing_terms(payload.valid_from, billing_hist, include_future=True)
+    if prev is not None:
+        carry_interval = prev.interval
+        carry_anchor = prev.anchor_on
+    else:
+        # Kein Vorgänger (Preisänderung liegt vor dem initialen Eintrag): Snapshot als Fallback
+        carry_interval = sub.interval
+        carry_anchor = payload.valid_from
 
-    # Wenn der neue Preis bereits gilt (valid_from <= heute): sub.amount aktualisieren.
-    # So bleibt amount immer der aktuell gültige Preis.
-    if payload.valid_from <= date.today():
-        sub.amount = payload.amount
+    new_entry = SubscriptionBillingHistory(
+        subscription_id=sub.id,
+        amount=payload.amount,
+        interval=carry_interval,
+        valid_from=payload.valid_from,
+        anchor_on=carry_anchor,
+    )
+    session.add(new_entry)
+
+    # Snapshot synchronisieren: sub.amount und sub.interval auf heute gültige Terms setzen.
+    # Zukünftige Einträge (valid_from > heute) ändern den Snapshot noch nicht.
+    sync_subscription_billing_snapshot(sub, billing_hist + [new_entry])
 
     session.commit()
-    # Detail mit aktualisierten Kennzahlen zurückgeben
+    return get_subscription_detail(session, subscription_id, user_id)
+
+
+def interval_change(
+    session: Session,
+    user_id: uuid.UUID,
+    subscription_id: uuid.UUID,
+    payload: IntervalChangeRequest,
+) -> SubscriptionDetail:
+    """
+    Ändert Abrechnungsintervall und Betrag gemeinsam ab einem Datum (v0.2.4).
+
+    Schlüsselregel: anchor_on = valid_from — der neue Zahlungsrhythmus startet genau hier.
+    Das unterscheidet Intervallwechsel von Preisänderungen (dort bleibt anchor_on gleich).
+
+    409-Block-Flow (rückwirkende Änderungen mit vorhandenen Buchungen):
+    - acknowledge_existing_payments=False (default):
+      → 409 wenn ab valid_from bereits Scheduled Payments existieren.
+      → Die Fehlermeldung nennt die Anzahl der betroffenen Buchungen.
+    - acknowledge_existing_payments=True:
+      → Speichert trotzdem — bestehende Buchungen bleiben unverändert (bewusste User-Entscheidung).
+    """
+    sub = _get_subscription_or_raise(session, subscription_id)
+    _check_ownership(sub, user_id)
+
+    # Aktuelle Billing-Historie laden — für Duplikat-Check
+    billing_hist = list(session.execute(
+        select(SubscriptionBillingHistory)
+        .where(SubscriptionBillingHistory.subscription_id == subscription_id)
+    ).scalars().all())
+
+    # Duplikat-Check: existiert bereits ein Eintrag für dieses Datum?
+    if any(e.valid_from == payload.valid_from for e in billing_hist):
+        raise DuplicateBillingHistoryEntryError(payload.valid_from.isoformat())
+
+    # 409-Block: rückwirkende Änderungen mit vorhandenen Buchungen erfordern explizite Bestätigung.
+    # Ohne Bestätigung wird geblockt — der User soll die Konsequenzen bewusst akzeptieren.
+    if not payload.acknowledge_existing_payments:
+        affected = list(session.execute(
+            select(SubscriptionScheduledPayment).where(
+                SubscriptionScheduledPayment.subscription_id == subscription_id,
+                SubscriptionScheduledPayment.due_date >= payload.valid_from,
+            )
+        ).scalars().all())
+        if affected:
+            raise BillingHistoryChangeBlockedError(
+                f"Ab {payload.valid_from.isoformat()} existieren bereits "
+                f"{len(affected)} Buchung(en). Bitte mit "
+                "acknowledge_existing_payments=true bestätigen, um fortzufahren."
+            )
+
+    # Intervallwechsel: anchor_on = valid_from — neuer Rhythmus startet genau hier.
+    new_entry = SubscriptionBillingHistory(
+        subscription_id=sub.id,
+        amount=payload.amount,
+        interval=payload.interval,
+        valid_from=payload.valid_from,
+        anchor_on=payload.valid_from,
+    )
+    session.add(new_entry)
+
+    # Snapshot synchronisieren: sub.amount und sub.interval auf heute gültige Terms setzen.
+    sync_subscription_billing_snapshot(sub, billing_hist + [new_entry])
+
+    session.commit()
     return get_subscription_detail(session, subscription_id, user_id)
 
 

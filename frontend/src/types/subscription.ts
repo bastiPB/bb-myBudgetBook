@@ -73,7 +73,6 @@ export interface SubscriptionCreate {
 
 export interface SubscriptionUpdate {
   name?: string
-  interval?: BillingInterval
   notes?: string | null
   // amount + next_due_date entfernt in v0.2.3 — Preisänderungen via /price-change
 }
@@ -126,4 +125,25 @@ export const PAYMENT_STATUS_LABELS: Record<PaymentStatus, string> = {
   paused:  'Pausiert',
   matched: 'Bezahlt',
   missed:  'Verpasst',
+}
+
+// Abrechnungshistorie-Eintrag (v0.2.4): fasst Betrag, Intervall und Anker zusammen.
+// Ersetzt die alte subscription_price_history — enthält jetzt auch Intervall und Anker.
+export interface BillingHistoryEntry {
+  id: string
+  subscription_id: string
+  amount: string         // Decimal als String, z. B. "9.99"
+  interval: BillingInterval
+  valid_from: string     // ISO-Datum "YYYY-MM-DD" — ab hier gilt dieser Eintrag
+  anchor_on: string      // ISO-Datum "YYYY-MM-DD" — Fälligkeitsanker für die Periodenberechnung
+}
+
+// Intervallwechsel-Anfrage (v0.2.4): Betrag + Intervall + Datum der ersten neuen Fälligkeit.
+// valid_from wird zum neuen Anker — die Perioden starten ab hier neu.
+// acknowledge_existing_payments: true erforderlich wenn ab valid_from bereits Buchungen existieren.
+export interface IntervalChangeRequest {
+  amount: number
+  interval: BillingInterval
+  valid_from: string     // ISO-Datum "YYYY-MM-DD"
+  acknowledge_existing_payments?: boolean
 }

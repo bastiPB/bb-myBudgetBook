@@ -20,6 +20,8 @@ from fastapi import APIRouter, UploadFile, status
 from app.config import get_settings
 from app.dependencies import DatabaseSession, EditorOrAdminUser
 from app.schemas.subscription import (
+    BillingHistoryEntry,
+    IntervalChangeRequest,
     OverviewRead,
     PriceChangeRequest,
     PriceHistoryEntry,
@@ -33,12 +35,15 @@ from app.schemas.subscription import (
 from app.services.subscriptions import (
     cancel_subscription,
     create_subscription,
+    delete_billing_history_entry,
     delete_price_history_entry,
     delete_subscription,
+    get_billing_history,
     get_overview,
     get_price_history,
     get_scheduled_payments,
     get_subscription_detail,
+    interval_change,
     list_subscriptions,
     price_change,
     resume_subscription,
@@ -307,6 +312,79 @@ def price_change_endpoint(
       - 403 wenn das Abo einem anderen User gehört
     """
     return price_change(session, user.id, subscription_id, payload)
+
+
+@router.get("/{subscription_id}/billing-history", response_model=list[BillingHistoryEntry])
+def billing_history(
+    subscription_id: uuid.UUID,
+    user: EditorOrAdminUser,
+    session: DatabaseSession,
+) -> list[BillingHistoryEntry]:
+    """
+    Gibt die Billing-Historie eines Abos zurück (v0.2.4).
+
+    Jeder Eintrag beschreibt ab wann (valid_from) welcher Betrag, welches Intervall
+    und welcher Fälligkeitsanker (anchor_on) gilt.
+    Einträge sind absteigend nach Datum sortiert (neuester Eintrag zuerst).
+
+    Fehler:
+      - 404 wenn das Abo nicht gefunden wird
+      - 403 wenn das Abo einem anderen User gehört
+    """
+    entries = get_billing_history(session, subscription_id, user.id)
+    return [BillingHistoryEntry.model_validate(e) for e in entries]
+
+
+@router.delete(
+    "/{subscription_id}/billing-history/{entry_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_billing_history_entry_endpoint(
+    subscription_id: uuid.UUID,
+    entry_id: uuid.UUID,
+    user: EditorOrAdminUser,
+    session: DatabaseSession,
+) -> None:
+    """
+    Löscht einen einzelnen Billing-History-Eintrag (v0.2.4).
+
+    Erlaubt wenn:
+    - Mindestens ein weiterer Eintrag für dieses Abo existiert.
+    - Keine Buchungen im Zeitraum existieren, in dem dieser Eintrag galt.
+
+    Fehler:
+      - 404 wenn das Abo oder der Eintrag nicht gefunden wird
+      - 403 wenn das Abo einem anderen User gehört
+      - 409 wenn der Eintrag der letzte ist oder Buchungen betroffen sind
+    """
+    delete_billing_history_entry(session, subscription_id, user.id, entry_id)
+
+
+@router.post("/{subscription_id}/interval-change", response_model=SubscriptionDetail)
+def interval_change_endpoint(
+    subscription_id: uuid.UUID,
+    payload: IntervalChangeRequest,
+    user: EditorOrAdminUser,
+    session: DatabaseSession,
+) -> SubscriptionDetail:
+    """
+    Ändert Abrechnungsintervall und Betrag gemeinsam (v0.2.4).
+
+    valid_from ist die erste Fälligkeit im neuen Intervall — auch der neue Anker.
+    Bei rückwirkenden Änderungen mit vorhandenen Buchungen: 409 ohne explizite Bestätigung.
+
+    Erwartet als JSON:
+    { "amount": 79.99, "interval": "yearly", "valid_from": "2026-06-01" }
+    Mit Bestätigung:
+    { ..., "acknowledge_existing_payments": true }
+
+    Fehler:
+      - 404 wenn das Abo nicht gefunden wird
+      - 403 wenn das Abo einem anderen User gehört
+      - 409 wenn für dieses Datum bereits ein Eintrag existiert
+      - 409 wenn ab valid_from Buchungen existieren (ohne acknowledge_existing_payments=true)
+    """
+    return interval_change(session, user.id, subscription_id, payload)
 
 
 @router.post("/{subscription_id}/cancel", response_model=SubscriptionDetail)

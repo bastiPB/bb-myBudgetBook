@@ -96,10 +96,22 @@ class TestS01RelativeDeltaAnchor:
         ]
 
     def test_s01_next_due_date(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Nächster Fälligkeitstag >= today(5.5.2026) ist 31.05.2026."""
+        """Naechster zukuenftiger Faelligkeitstag > today(5.5.2026) ist 31.05.2026."""
         monkeypatch.setattr("app.services.subscriptions.date", make_fake_date(2026, 5, 5))
         result = compute_next_due_date(date(2026, 1, 31), period_months=1)
         assert result == date(2026, 5, 31)
+
+    def test_s01_next_due_date_skips_due_today(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Wenn heute ein Faelligkeitstag ist, zeigt next_due_date die naechste Periode."""
+        monkeypatch.setattr("app.services.subscriptions.date", make_fake_date(2026, 5, 7))
+        result = compute_next_due_date(date(2026, 5, 7), period_months=1)
+        assert result == date(2026, 6, 7)
+
+    def test_s01_next_due_date_skips_past_due_yesterday(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Ein gestern gestartetes Monatsabo ist als naechstes im Folgemonat faellig."""
+        monkeypatch.setattr("app.services.subscriptions.date", make_fake_date(2026, 5, 7))
+        result = compute_next_due_date(date(2026, 5, 6), period_months=1)
+        assert result == date(2026, 6, 6)
 
     def test_s01_tatsaechlich(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Tatsächlich = 4 Perioden × 35,00 € = 140,00 €."""
@@ -225,9 +237,9 @@ class TestS03PauseAndPriceChange:
         assert result == Decimal("87.91")
 
     def test_s03_next_due_date_after_pause(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Nächste Fälligkeit >= today(05.05.) ist 03.06.2026 — Mai liegt noch in Pause."""
+        """Naechste zukuenftige Faelligkeit > today(05.05.) ist 03.06.2026."""
         monkeypatch.setattr("app.services.subscriptions.date", make_fake_date(2026, 5, 5))
         # compute_next_due_date rechnet rein aus started_on+N×period — ohne Pausenberücksichtigung.
-        # Der nächste berechnete Termin >= 05.05.2026 ist 03.06.2026.
+        # Der naechste berechnete Termin > 05.05.2026 ist 03.06.2026.
         result = compute_next_due_date(self.STARTED_ON, self.PERIOD_MONTHS)
         assert result == date(2026, 6, 3)

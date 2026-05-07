@@ -1,5 +1,7 @@
 // Alle API-Aufrufe rund um Abos.
 import type {
+  BillingHistoryEntry,
+  IntervalChangeRequest,
   OverviewRead,
   PriceChangeRequest,
   PriceHistoryEntry,
@@ -111,6 +113,30 @@ export async function deletePriceHistoryEntry(subscriptionId: string, entryId: s
 // Leere Liste wenn Buchungshistorie nicht aktiviert oder Scheduler noch nicht gelaufen.
 export async function getScheduledPayments(id: string): Promise<ScheduledPaymentEntry[]> {
   return apiFetch<ScheduledPaymentEntry[]>(`/subscriptions/${id}/scheduled-payments`)
+}
+
+// Abrechnungshistorie eines Abos laden (v0.2.4) — neuester Eintrag zuerst.
+// Enthält Betrag, Intervall und Anker pro Zeitraum.
+export async function getBillingHistory(id: string): Promise<BillingHistoryEntry[]> {
+  return apiFetch<BillingHistoryEntry[]>(`/subscriptions/${id}/billing-history`)
+}
+
+// Einzelnen Abrechnungshistorie-Eintrag löschen (v0.2.4).
+// Schlägt fehl (409) wenn es der letzte Eintrag ist oder Buchungen betroffen sind.
+export async function deleteBillingHistoryEntry(subscriptionId: string, entryId: string): Promise<void> {
+  return apiFetch<void>(`/subscriptions/${subscriptionId}/billing-history/${entryId}`, {
+    method: 'DELETE',
+  })
+}
+
+// Intervall und Betrag gemeinsam ändern (v0.2.4).
+// valid_from = erste Fälligkeit im neuen Intervall — wird auch neuer Anker.
+// acknowledge_existing_payments=true nötig wenn ab valid_from bereits Buchungen existieren (409-Flow).
+export async function intervalChange(id: string, payload: IntervalChangeRequest): Promise<SubscriptionDetail> {
+  return apiFetch<SubscriptionDetail>(`/subscriptions/${id}/interval-change`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
 }
 
 // Baut die vollständige URL zu einem Logo aus dem relativen Pfad der DB.

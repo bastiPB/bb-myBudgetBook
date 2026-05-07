@@ -700,7 +700,7 @@ compute_next_due_date_from_history(billing_history, today)
 
 Semantik:
 - Nimmt alle Faelligkeiten aus der Billing-Historie.
-- Gibt die erste Faelligkeit `>= today` zurueck.
+- Gibt die erste zukuenftige Faelligkeit `> today` zurueck.
 - Wenn das Abo erst in Zukunft beginnt, ist das die erste zukuenftige Faelligkeit.
 
 ### `compute_tatsaechlich`

@@ -1,12 +1,13 @@
-// SubscriptionDetailPage.tsx — Detailansicht eines einzelnen Abos (v0.2.3).
+// SubscriptionDetailPage.tsx — Detailansicht eines einzelnen Abos (v0.2.4).
 //
 // Zeigt:
 //   - Vier Kostenkennzahlen (Monatlich / Dieses Jahr / Intervalle / Tatsächlich)
 //   - Alle Stammdaten (Abschlussdatum, Fälligkeit, Intervall, Status)
 //   - Preisänderungs-Formular mit Wirkungsdatum
+//   - Intervallwechsel-Formular (v0.2.4): Betrag + Intervall + Datum gemeinsam ändern
 //   - Notizen mit Inline-Bearbeitung
 //   - Pausieren / Fortsetzen / Kündigen (mit Modal)
-//   - Preishistorie + Buchungshistorie
+//   - Preishistorie + Abrechnungshistorie (v0.2.4) + Buchungshistorie
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 
@@ -14,24 +15,44 @@ import ConfirmModal from '../components/ConfirmModal'
 import InfoModal from '../components/InfoModal'
 import {
   cancelSubscription,
+  deleteBillingHistoryEntry,
   deletePriceHistoryEntry,
+  getBillingHistory,
   getLogoUrl,
   getPriceHistory,
   getScheduledPayments,
   getSubscription,
+  intervalChange,
   priceChange,
   resumeSubscription,
   suspendSubscription,
   updateSubscription,
   uploadSubscriptionLogo,
 } from '../api/subscriptions'
-import type { PriceHistoryEntry, ScheduledPaymentEntry, SubscriptionDetail, SubscriptionStatus } from '../types/subscription'
-import { formatAmount, formatDate, INTERVAL_LABELS, parseAmount, PAYMENT_STATUS_LABELS, STATUS_LABELS } from '../types/subscription'
+import type {
+  BillingHistoryEntry,
+  BillingInterval,
+  PriceHistoryEntry,
+  ScheduledPaymentEntry,
+  SubscriptionDetail,
+  SubscriptionStatus,
+} from '../types/subscription'
+import {
+  formatAmount,
+  formatDate,
+  INTERVAL_LABELS,
+  parseAmount,
+  PAYMENT_STATUS_LABELS,
+  STATUS_LABELS,
+} from '../types/subscription'
 // SubscriptionsPage.css enthält die gemeinsamen Button-Klassen
 import './SubscriptionsPage.css'
 import './SubscriptionDetailPage.css'
 
-// Typ für den Modal-State
+// Alle Intervalle in der gewünschten Reihenfolge für das Intervallwechsel-Dropdown
+const INTERVALS: BillingInterval[] = ['monthly', 'quarterly', 'semiannual', 'yearly', 'biennial']
+
+// Typ für den Bestätigungs-Modal-State
 type ModalState = {
   title: string
   body?: string
@@ -68,6 +89,7 @@ export default function SubscriptionDetailPage() {
   const [loadError, setLoadError] = useState<string | null>(null)
 
   const [priceHistory, setPriceHistory] = useState<PriceHistoryEntry[]>([])
+  const [billingHistory, setBillingHistory] = useState<BillingHistoryEntry[]>([])
   const [scheduledPayments, setScheduledPayments] = useState<ScheduledPaymentEntry[]>([])
 
   // Logo-Upload
@@ -81,37 +103,60 @@ export default function SubscriptionDetailPage() {
   const [notesLoading, setNotesLoading] = useState(false)
   const [notesError, setNotesError] = useState<string | null>(null)
 
-  // Preisänderungs-Formular
+  // Preisänderungs-Formular — ändert nur den Betrag, Intervall bleibt gleich
   const [showPriceForm, setShowPriceForm] = useState(false)
   const [priceForm, setPriceForm] = useState({ amount: '', valid_from: '' })
   const [priceLoading, setPriceLoading] = useState(false)
   const [priceError, setPriceError] = useState<string | null>(null)
 
-  // Bestätigungs-Modal (Pausieren, Fortsetzen, Kündigen, Preiseintrag löschen)
+  // Intervallwechsel-Formular (v0.2.4) — ändert Betrag + Intervall gemeinsam
+  const [showIntervalForm, setShowIntervalForm] = useState(false)
+  const [intervalForm, setIntervalForm] = useState({
+    amount: '',
+    interval: 'monthly' as BillingInterval,
+    valid_from: '',
+  })
+  const [intervalLoading, setIntervalLoading] = useState(false)
+  const [intervalError, setIntervalError] = useState<string | null>(null)
+  // Zwei-Phasen-Flow: User bestätigt bewusst dass vorhandene Buchungen betroffen sind (409-Flow)
+  const [intervalAcknowledge, setIntervalAcknowledge] = useState(false)
+
+  // Bestätigungs-Modal (Pausieren, Fortsetzen, Kündigen, Einträge löschen)
   const [modal, setModal] = useState<ModalState | null>(null)
 
   // Info/Fehler-Modal — zeigt Fehlermeldungen der API als Overlay an
   const [infoModal, setInfoModal] = useState<{ title: string; body: string } | null>(null)
 
-  // Abo + Preishistorie + Buchungshistorie beim ersten Rendern parallel laden
+  // Abo + Preishistorie + Abrechnungshistorie + Buchungshistorie beim ersten Rendern parallel laden
   useEffect(() => {
     if (!id) return
-    Promise.all([getSubscription(id), getPriceHistory(id), getScheduledPayments(id)])
-      .then(([data, history, payments]) => {
+    Promise.all([
+      getSubscription(id),
+      getPriceHistory(id),
+      getScheduledPayments(id),
+      getBillingHistory(id),
+    ])
+      .then(([data, history, payments, billing]) => {
         setSub(data)
         setNotesValue(data.notes ?? '')
         setPriceHistory(history)
         setScheduledPayments(payments)
+        setBillingHistory(billing)
       })
       .catch(err => setLoadError(err instanceof Error ? err.message : 'Ladefehler'))
   }, [id])
 
-  // --- Hilfe: Abo neu laden (nach Preis- oder Status-Änderung) ---
+  // --- Hilfe: Abo neu laden (nach Preis-, Intervall- oder Status-Änderung) ---
   async function reloadSub() {
     if (!id) return
-    const [data, history] = await Promise.all([getSubscription(id), getPriceHistory(id)])
+    const [data, history, billing] = await Promise.all([
+      getSubscription(id),
+      getPriceHistory(id),
+      getBillingHistory(id),
+    ])
     setSub(data)
     setPriceHistory(history)
+    setBillingHistory(billing)
   }
 
   // --- Abo pausieren ---
@@ -184,6 +229,33 @@ export default function SubscriptionDetailPage() {
     })
   }
 
+  // --- Abrechnungshistorie-Eintrag löschen (v0.2.4) ---
+  function handleDeleteBillingEntry(entry: BillingHistoryEntry) {
+    if (!sub) return
+    setModal({
+      title: `Abrechnungseintrag vom ${formatDate(entry.valid_from)} löschen?`,
+      body: `${formatAmount(entry.amount)} € ${INTERVAL_LABELS[entry.interval]}. Diese Aktion kann nicht rückgängig gemacht werden.`,
+      onConfirm: async () => {
+        setModal(null)
+        try {
+          await deleteBillingHistoryEntry(sub.id, entry.id)
+          // Abo neu laden — sub.amount oder sub.interval könnte sich geändert haben
+          const [updated, billing] = await Promise.all([
+            getSubscription(sub.id),
+            getBillingHistory(sub.id),
+          ])
+          setSub(updated)
+          setBillingHistory(billing)
+        } catch (err) {
+          setInfoModal({
+            title: 'Löschen nicht möglich',
+            body: err instanceof Error ? err.message : 'Unbekannter Fehler.',
+          })
+        }
+      },
+    })
+  }
+
   // --- Logo hochladen ---
   async function handleLogoUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -218,7 +290,7 @@ export default function SubscriptionDetailPage() {
     }
   }
 
-  // --- Preisänderung speichern ---
+  // --- Preisänderung speichern (nur Betrag, Intervall bleibt gleich) ---
   async function handlePriceChange(e: React.SyntheticEvent<HTMLFormElement>) {
     e.preventDefault()
     if (!sub) return
@@ -238,9 +310,10 @@ export default function SubscriptionDetailPage() {
     try {
       const updated = await priceChange(sub.id, { amount: amountNum, valid_from: priceForm.valid_from })
       setSub(updated)
-      // Preishistorie separat neu laden damit die Tabelle aktuell ist
-      const history = await getPriceHistory(sub.id)
+      // Preishistorie + Abrechnungshistorie separat neu laden damit die Tabellen aktuell sind
+      const [history, billing] = await Promise.all([getPriceHistory(sub.id), getBillingHistory(sub.id)])
       setPriceHistory(history)
+      setBillingHistory(billing)
       setPriceForm({ amount: '', valid_from: '' })
       setShowPriceForm(false)
     } catch (err) {
@@ -250,17 +323,64 @@ export default function SubscriptionDetailPage() {
     }
   }
 
+  // --- Intervallwechsel speichern (v0.2.4) ---
+  // valid_from = erste Fälligkeit im neuen Intervall — dient auch als neuer Anker.
+  // Zwei-Phasen-Flow: bei vorhandenen Buchungen kommt zunächst ein 409-Fehler.
+  // Mit angehakter Checkbox wird acknowledge_existing_payments=true mitgeschickt.
+  async function handleIntervalChange(e: React.SyntheticEvent<HTMLFormElement>) {
+    e.preventDefault()
+    if (!sub) return
+    setIntervalError(null)
+
+    const amountNum = parseAmount(intervalForm.amount)
+    if (isNaN(amountNum) || amountNum <= 0) {
+      setIntervalError('Bitte einen gültigen Betrag eingeben (z. B. 9,99).')
+      return
+    }
+    if (!intervalForm.valid_from) {
+      setIntervalError('Bitte ein Datum angeben.')
+      return
+    }
+
+    setIntervalLoading(true)
+    try {
+      const updated = await intervalChange(sub.id, {
+        amount: amountNum,
+        interval: intervalForm.interval,
+        valid_from: intervalForm.valid_from,
+        // Nur mitsenden wenn User explizit bestätigt hat — sonst weglassen
+        ...(intervalAcknowledge ? { acknowledge_existing_payments: true } : {}),
+      })
+      setSub(updated)
+      const [history, billing] = await Promise.all([getPriceHistory(sub.id), getBillingHistory(sub.id)])
+      setPriceHistory(history)
+      setBillingHistory(billing)
+      setIntervalForm({ amount: '', interval: 'monthly', valid_from: '' })
+      setIntervalAcknowledge(false)
+      setShowIntervalForm(false)
+    } catch (err) {
+      setIntervalError(err instanceof Error ? err.message : 'Fehler beim Speichern.')
+    } finally {
+      setIntervalLoading(false)
+    }
+  }
+
   if (loadError) return <p className="detail-load-error">Fehler: {loadError}</p>
   if (!sub) return <p className="detail-loading">Wird geladen…</p>
 
   // Prüfen ob eine Preisankündigung in der Zukunft liegt
   const today = new Date().toISOString().slice(0, 10)
-  const futurePrice = priceHistory.find(p => p.valid_from > today)
+  const futureBilling = billingHistory
+    .filter(entry => entry.valid_from > today)
+    .sort((a, b) => a.valid_from.localeCompare(b.valid_from))[0]
+
+  // Acknowledge-Checkbox nur anzeigen wenn der Fehler auf vorhandene Buchungen hinweist
+  const showAcknowledgeCheckbox = intervalError !== null && intervalError.includes('Buchung')
 
   return (
     <div className="detail-page">
 
-      {/* Bestätigungs-Modal (Pausieren, Fortsetzen, Kündigen, Preiseintrag löschen) */}
+      {/* Bestätigungs-Modal (Pausieren, Fortsetzen, Kündigen, Einträge löschen) */}
       {modal && (
         <ConfirmModal
           title={modal.title}
@@ -315,9 +435,10 @@ export default function SubscriptionDetailPage() {
           <h1 className="detail-name">{sub.name}</h1>
           <StatusBadge status={sub.status} />
           {/* Badge für angekündigte Preisänderung */}
-          {futurePrice && (
+          {futureBilling && (
             <span className="detail-price-announcement">
-              Preisänderung ab {formatDate(futurePrice.valid_from)}: {formatAmount(futurePrice.amount)} €
+              Aenderung ab {formatDate(futureBilling.valid_from)}: {formatAmount(futureBilling.amount)} EUR,
+              {' '}{INTERVAL_LABELS[futureBilling.interval]}
             </span>
           )}
           {logoError && <p className="detail-logo-error">{logoError}</p>}
@@ -366,7 +487,7 @@ export default function SubscriptionDetailPage() {
         </dl>
       </div>
 
-      {/* Preisänderung */}
+      {/* Preisänderung — nur Betrag ändern, Intervall bleibt gleich */}
       <div className="detail-card">
         <div className="detail-section-header">
           <h2 className="detail-section-title">Preisänderung</h2>
@@ -407,6 +528,84 @@ export default function SubscriptionDetailPage() {
                 type="button"
                 className="btn-outline-sm"
                 onClick={() => { setShowPriceForm(false); setPriceForm({ amount: '', valid_from: '' }); setPriceError(null) }}
+              >
+                Abbrechen
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+
+      {/* Intervallwechsel — Betrag und Abrechnungsrhythmus gemeinsam ändern (v0.2.4) */}
+      <div className="detail-card">
+        <div className="detail-section-header">
+          <h2 className="detail-section-title">Intervallwechsel</h2>
+          {!showIntervalForm && (
+            <button className="btn-outline-sm" onClick={() => setShowIntervalForm(true)}>
+              Intervall ändern
+            </button>
+          )}
+        </div>
+
+        {showIntervalForm && (
+          <form className="detail-price-form" onSubmit={handleIntervalChange}>
+            <div className="detail-price-form-row">
+              <input
+                className="subs-input subs-input-sm"
+                placeholder="Neuer Betrag (z. B. 79,99)"
+                value={intervalForm.amount}
+                onChange={e => setIntervalForm(f => ({ ...f, amount: e.target.value }))}
+                required
+                autoFocus
+              />
+              <select
+                className="subs-select"
+                value={intervalForm.interval}
+                onChange={e => setIntervalForm(f => ({ ...f, interval: e.target.value as BillingInterval }))}
+              >
+                {INTERVALS.map(iv => (
+                  <option key={iv} value={iv}>{INTERVAL_LABELS[iv]}</option>
+                ))}
+              </select>
+              <input
+                className="subs-input subs-input-sm"
+                type="date"
+                title="Erste Fälligkeit im neuen Intervall (wird auch neuer Anker)"
+                value={intervalForm.valid_from}
+                onChange={e => setIntervalForm(f => ({ ...f, valid_from: e.target.value }))}
+                required
+              />
+            </div>
+            {intervalError && (
+              <>
+                <p className="detail-notes-error">{intervalError}</p>
+                {/* Acknowledge-Checkbox erscheint wenn der Server meldet dass Buchungen betroffen sind.
+                    User muss bewusst bestätigen — dann wird der Request mit dem Flag nochmals abgeschickt. */}
+                {showAcknowledgeCheckbox && (
+                  <label style={{ display: 'flex', gap: '8px', alignItems: 'flex-start', margin: '8px 0', fontSize: '0.875rem' }}>
+                    <input
+                      type="checkbox"
+                      checked={intervalAcknowledge}
+                      onChange={e => setIntervalAcknowledge(e.target.checked)}
+                    />
+                    Ich bestätige, dass die vorhandenen Buchungen angepasst werden sollen.
+                  </label>
+                )}
+              </>
+            )}
+            <div className="detail-notes-actions">
+              <button type="submit" className="btn-primary-sm" disabled={intervalLoading}>
+                {intervalLoading ? '…' : 'Speichern'}
+              </button>
+              <button
+                type="button"
+                className="btn-outline-sm"
+                onClick={() => {
+                  setShowIntervalForm(false)
+                  setIntervalForm({ amount: '', interval: 'monthly', valid_from: '' })
+                  setIntervalError(null)
+                  setIntervalAcknowledge(false)
+                }}
               >
                 Abbrechen
               </button>
@@ -500,6 +699,53 @@ export default function SubscriptionDetailPage() {
           </table>
         )}
       </div>
+
+      {/* Abrechnungshistorie — Betrag + Intervall + Anker pro Zeitraum (v0.2.4).
+          Wird nur angezeigt wenn mindestens ein Eintrag vorhanden ist. */}
+      {billingHistory.length > 0 && (
+        <div className="detail-card">
+          <h2 className="detail-section-title">Abrechnungshistorie</h2>
+          <table className="detail-ph-table">
+            <thead>
+              <tr>
+                <th>Gültig ab</th>
+                <th>Betrag</th>
+                <th>Intervall</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {billingHistory.map((entry, i) => (
+                <tr key={entry.id} className={i === 0 ? 'detail-ph-current' : ''}>
+                  <td>{formatDate(entry.valid_from)}</td>
+                  <td>{formatAmount(entry.amount)} €</td>
+                  <td>{INTERVAL_LABELS[entry.interval]}</td>
+                  <td className="detail-ph-actions">
+                    <button
+                      className="ph-delete-btn"
+                      title={
+                        billingHistory.length <= 1
+                          ? 'Letzter Eintrag — kann nicht gelöscht werden'
+                          : 'Eintrag löschen'
+                      }
+                      disabled={billingHistory.length <= 1}
+                      onClick={() => handleDeleteBillingEntry(entry)}
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <polyline points="3 6 5 6 21 6" />
+                        <path d="M19 6l-1 14H6L5 6" />
+                        <path d="M10 11v6" />
+                        <path d="M14 11v6" />
+                        <path d="M9 6V4h6v2" />
+                      </svg>
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* Buchungshistorie — nur anzeigen wenn Einträge vorhanden */}
       {scheduledPayments.length > 0 && (
