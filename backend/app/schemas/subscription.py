@@ -73,12 +73,12 @@ class SubscriptionUpdate(BaseModel):
 
     Alle Felder sind optional — es muss nur das mitgeschickt werden, was sich ändert.
 
-    Hinweis: amount ist hier nicht mehr enthalten. Preisänderungen laufen über
-    den eigenen Endpoint POST /subscriptions/{id}/price-change (v0.2.3 / RD-05).
+    Hinweis: amount und interval sind hier nicht mehr enthalten.
+    - Preisänderungen: POST /subscriptions/{id}/price-change
+    - Intervallwechsel: POST /subscriptions/{id}/interval-change  (v0.2.4)
     """
 
     name: str | None = None
-    interval: BillingInterval | None = None
     notes: str | None = None
 
 
@@ -218,3 +218,59 @@ class ScheduledPaymentRead(BaseModel):
     due_date: date
     amount: Optional[Decimal]
     status: PaymentStatus
+
+
+# --- v0.2.4: Billing History ---
+
+
+class BillingHistoryEntry(BaseModel):
+    """
+    Ausgabe-Schema für einen Billing-History-Eintrag (v0.2.4).
+
+    Beschreibt einen Zeitabschnitt der Abrechnungsbedingungen:
+    - amount:     Betrag pro Periode
+    - interval:   Abrechnungsintervall
+    - valid_from: Ab wann gilt dieser Eintrag?
+    - anchor_on:  Von wo aus werden Fälligkeiten berechnet?
+                  Bei Preisänderung: gleich wie vorheriger Eintrag.
+                  Bei Intervallwechsel: = valid_from (neuer Rhythmus startet hier).
+
+    Wird für GET /subscriptions/{id}/billing-history und die Frontend-Historientabelle genutzt.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    subscription_id: uuid.UUID
+    amount: Decimal
+    interval: BillingInterval
+    valid_from: date
+    anchor_on: date
+
+
+class IntervalChangeRequest(BaseModel):
+    """
+    Eingabe-Schema für POST /subscriptions/{id}/interval-change (v0.2.4).
+
+    Ändert Abrechnungsintervall und Betrag gemeinsam ab einem Datum.
+    valid_from ist die erste Fälligkeit im neuen Intervall — von dort startet auch anchor_on.
+
+    acknowledge_existing_payments:
+      False (default): Der Endpoint blockt mit 409, wenn ab valid_from bereits
+                       Scheduled Payments existieren.
+      True:            Speichert die neue Billing-Historie trotzdem — bestehende
+                       Scheduled Payments bleiben unverändert (bewusste User-Entscheidung).
+    """
+
+    amount: Decimal
+    interval: BillingInterval
+    # Erste Fälligkeit im neuen Intervall — wird auch als anchor_on gesetzt
+    valid_from: date
+    # Sicherheits-Flag: bei rückwirkenden Änderungen mit vorhandenen Buchungen nötig
+    acknowledge_existing_payments: bool = False
+
+    @field_validator("amount", mode="before")
+    @classmethod
+    def normalize_amount(cls, v: object) -> object:
+        """Normalisiert Komma → Punkt damit Pydantic auf Decimal parsen kann."""
+        return _normalize_amount(v)

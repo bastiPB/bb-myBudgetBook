@@ -37,8 +37,8 @@ const PAGE_SIZES = [25, 50, 100] as const
 // Startformular für "Neues Abo": started_on optional (Backend setzt default auf heute)
 const EMPTY_CREATE = { name: '', amount: '', started_on: '', interval: 'monthly' as BillingInterval }
 
-// Startformular für "Bearbeiten": nur Name und Intervall (Preis via Detailseite)
-const EMPTY_EDIT = { name: '', interval: 'monthly' as BillingInterval }
+// Startformular fuer "Bearbeiten": Intervallwechsel laufen ueber die Detailseite.
+const EMPTY_EDIT = { name: '' }
 
 // Typ für den Modal-State: null = kein Modal offen
 type ModalState = {
@@ -150,12 +150,12 @@ export default function SubscriptionsPage() {
   // --- Bearbeiten starten ---
   function startEdit(sub: SubscriptionRead) {
     setEditingId(sub.id)
-    // Edit-Formular enthält nur Name und Intervall — Preis via Detailseite ändern
-    setEditForm({ name: sub.name, interval: sub.interval })
+    // Edit-Formular enthaelt nur Name; Preis/Intervall laufen ueber eigene Detail-Flows.
+    setEditForm({ name: sub.name })
     setEditError(null)
   }
 
-  // --- Abo speichern (nur Name + Intervall) ---
+  // --- Abo speichern (nur Name) ---
   async function handleUpdate(e: React.SyntheticEvent<HTMLFormElement>) {
     e.preventDefault()
     if (!editingId) return
@@ -164,7 +164,6 @@ export default function SubscriptionsPage() {
     try {
       const aktualisiert = await updateSubscription(editingId, {
         name: editForm.name,
-        interval: editForm.interval,
       })
       setSubscriptions(prev => prev.map(s => s.id === editingId ? aktualisiert : s))
       setEditingId(null)
@@ -349,7 +348,7 @@ export default function SubscriptionsPage() {
               <tbody>
                 {paginated.map(sub =>
                   editingId === sub.id ? (
-                    // Edit-Zeile: nur Name + Intervall (Preis via Detailseite)
+                    // Edit-Zeile: nur Name; Preis und Intervall laufen ueber die Detailseite.
                     <tr key={sub.id} className="is-editing">
                       <td colSpan={7}>
                         <form className="subs-edit-form" onSubmit={handleUpdate}>
@@ -360,15 +359,7 @@ export default function SubscriptionsPage() {
                             required
                             autoFocus
                           />
-                          <select
-                            className="subs-select"
-                            value={editForm.interval}
-                            onChange={e => setEditForm(f => ({ ...f, interval: e.target.value as BillingInterval }))}
-                          >
-                            {INTERVALS.map(iv => (
-                              <option key={iv} value={iv}>{INTERVAL_LABELS[iv]}</option>
-                            ))}
-                          </select>
+                          <span className="subs-interval">{INTERVAL_LABELS[sub.interval]}</span>
 
                           {editError && <span className="subs-edit-error">{editError}</span>}
 

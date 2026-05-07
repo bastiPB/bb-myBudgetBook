@@ -156,6 +156,9 @@ class SubscriptionPriceHistory(BaseModel):
 
     Wird still geschrieben wenn sich `amount` ändert — kein API-Endpoint in v0.2.2.
     Ermöglicht später genaue historische Kostenberechnungen (Slice E).
+
+    Ab v0.2.4 abgelöst durch SubscriptionBillingHistory (historisiert auch Intervall + Anker).
+    Diese Tabelle bleibt für eine Übergangsrelease erhalten und wird später entfernt.
     """
     __tablename__ = "subscription_price_history"
 
@@ -169,3 +172,47 @@ class SubscriptionPriceHistory(BaseModel):
 
     # Ab welchem Datum gilt dieser Preis?
     valid_from: Mapped[date] = mapped_column(Date, nullable=False)
+
+
+class SubscriptionBillingHistory(BaseModel):
+    """
+    Historisiert Abrechnungsbedingungen eines Abos: Preis, Intervall und Faelligkeitsanker.
+
+    Jeder Eintrag beschreibt ab wann (valid_from) welcher Betrag (amount),
+    welches Intervall und welcher Anker (anchor_on) gilt.
+
+    Schlüsselregel:
+    - Reine Preisänderung: anchor_on bleibt gleich wie vorheriger Eintrag.
+    - Intervallwechsel:    anchor_on = valid_from (neuer Rhythmus startet hier).
+
+    Eingeführt in v0.2.4 als Ablösung von subscription_price_history.
+    """
+    __tablename__ = "subscription_billing_history"
+
+    # Welches Abo? Bei Löschung des Abos fällt die Billing-Historie automatisch mit.
+    subscription_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("subscriptions.id", ondelete="CASCADE"),
+        index=True,
+    )
+
+    # Betrag pro Abrechnungsperiode (nicht monatlich normalisiert)
+    amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+
+    # Abrechnungsintervall — nutzt denselben PostgreSQL-Enum wie subscriptions.interval
+    # create_type=False in der Alembic-Migration nötig, da "billinginterval" bereits existiert!
+    interval: Mapped[BillingInterval] = mapped_column(
+        SAEnum(BillingInterval, name="billinginterval"),
+        nullable=False,
+    )
+
+    # Ab wann gelten diese Abrechnungsbedingungen?
+    valid_from: Mapped[date] = mapped_column(Date, nullable=False)
+
+    # Von welchem Datum aus werden Fälligkeiten für diesen Eintrag berechnet?
+    # Bleibt gleich bei Preisänderung; wird = valid_from bei Intervallwechsel.
+    anchor_on: Mapped[date] = mapped_column(Date, nullable=False)
+
+    # Kein zweiter Eintrag mit demselben Wirkungsdatum pro Abo erlaubt
+    __table_args__ = (
+        UniqueConstraint("subscription_id", "valid_from", name="uq_billing_history_valid_from"),
+    )

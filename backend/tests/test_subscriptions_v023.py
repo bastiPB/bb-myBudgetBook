@@ -21,6 +21,7 @@ from types import SimpleNamespace
 import pytest
 from dateutil.relativedelta import relativedelta
 
+from app.models.subscription import BillingInterval
 from app.services.subscriptions import (
     compute_dieses_kalenderjahr,
     compute_due_dates,
@@ -33,9 +34,15 @@ from app.services.subscriptions import (
 
 # ─── Test-Hilfsobjekte ────────────────────────────────────────────────────────
 
-def price_entry(amount: str, valid_from: date) -> SimpleNamespace:
-    """Minimale Preishistorie-Zeile — nur .amount und .valid_from werden gebraucht."""
-    return SimpleNamespace(amount=Decimal(amount), valid_from=valid_from)
+def billing_entry(amount: str, interval: BillingInterval, valid_from: date, anchor_on: date) -> SimpleNamespace:
+    """Minimale Billing-History-Zeile im v0.2.4-Format für isolierte Service-Tests."""
+    return SimpleNamespace(
+        amount=Decimal(amount),
+        interval=interval,
+        valid_from=valid_from,
+        anchor_on=anchor_on,
+        id=None,
+    )
 
 
 def pause_entry(paused_at: date, resumed_at: date | None = None) -> SimpleNamespace:
@@ -96,31 +103,35 @@ class TestS01RelativeDeltaAnchor:
         ]
 
     def test_s01_next_due_date(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Nächster Fälligkeitstag >= today(5.5.2026) ist 31.05.2026."""
+        """Naechster zukuenftiger Faelligkeitstag > today(5.5.2026) ist 31.05.2026."""
         monkeypatch.setattr("app.services.subscriptions.date", make_fake_date(2026, 5, 5))
         result = compute_next_due_date(date(2026, 1, 31), period_months=1)
         assert result == date(2026, 5, 31)
 
+    def test_s01_next_due_date_skips_due_today(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Wenn heute ein Faelligkeitstag ist, zeigt next_due_date die naechste Periode."""
+        monkeypatch.setattr("app.services.subscriptions.date", make_fake_date(2026, 5, 7))
+        result = compute_next_due_date(date(2026, 5, 7), period_months=1)
+        assert result == date(2026, 6, 7)
+
+    def test_s01_next_due_date_skips_past_due_yesterday(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Ein gestern gestartetes Monatsabo ist als naechstes im Folgemonat faellig."""
+        monkeypatch.setattr("app.services.subscriptions.date", make_fake_date(2026, 5, 7))
+        result = compute_next_due_date(date(2026, 5, 6), period_months=1)
+        assert result == date(2026, 6, 6)
+
     def test_s01_tatsaechlich(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Tatsächlich = 4 Perioden × 35,00 € = 140,00 €."""
         monkeypatch.setattr("app.services.subscriptions.date", make_fake_date(2026, 5, 5))
-        ph = [price_entry("35.00", date(2026, 1, 31))]
-        result = compute_tatsaechlich(
-            started_on=date(2026, 1, 31),
-            period_months=1,
-            price_history=ph,
-            pause_history=[],
-        )
+        bh = [billing_entry("35.00", BillingInterval.monthly, date(2026, 1, 31), anchor_on=date(2026, 1, 31))]
+        result = compute_tatsaechlich(billing_history=bh, pause_history=[])
         assert result == Decimal("140.00")
 
     def test_s01_intervalle(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Intervalle = 4 (Jan, Feb, Mär, Apr — alle nicht pausiert)."""
         monkeypatch.setattr("app.services.subscriptions.date", make_fake_date(2026, 5, 5))
-        result = compute_intervalle(
-            started_on=date(2026, 1, 31),
-            period_months=1,
-            pause_history=[],
-        )
+        bh = [billing_entry("35.00", BillingInterval.monthly, date(2026, 1, 31), anchor_on=date(2026, 1, 31))]
+        result = compute_intervalle(billing_history=bh, pause_history=[])
         assert result == 4
 
     def test_s01_dieses_kalenderjahr(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -129,13 +140,8 @@ class TestS01RelativeDeltaAnchor:
         Alle Perioden Jan–Dez 2026 liegen im Kalenderjahr, kein Preiswechsel.
         """
         monkeypatch.setattr("app.services.subscriptions.date", make_fake_date(2026, 5, 5))
-        ph = [price_entry("35.00", date(2026, 1, 31))]
-        result = compute_dieses_kalenderjahr(
-            started_on=date(2026, 1, 31),
-            period_months=1,
-            price_history=ph,
-            pause_history=[],
-        )
+        bh = [billing_entry("35.00", BillingInterval.monthly, date(2026, 1, 31), anchor_on=date(2026, 1, 31))]
+        result = compute_dieses_kalenderjahr(billing_history=bh, pause_history=[])
         assert result == Decimal("420.00")
 
 
@@ -168,9 +174,10 @@ class TestS03PauseAndPriceChange:
 
     STARTED_ON = date(2026, 3, 3)
     PERIOD_MONTHS = 1
-    PRICE_HISTORY = [
-        price_entry("8.99", date(2026, 3, 3)),
-        price_entry("9.99", date(2026, 5, 3)),
+    # Billing-Historie im v0.2.4-Format: Preiswechsel → anchor_on bleibt gleich wie der erste Eintrag.
+    BILLING_HISTORY = [
+        billing_entry("8.99", BillingInterval.monthly, date(2026, 3, 3), anchor_on=date(2026, 3, 3)),
+        billing_entry("9.99", BillingInterval.monthly, date(2026, 5, 3), anchor_on=date(2026, 3, 3)),
     ]
     PAUSE_HISTORY = [
         pause_entry(paused_at=date(2026, 4, 15), resumed_at=date(2026, 5, 30)),
@@ -190,9 +197,7 @@ class TestS03PauseAndPriceChange:
         """Tatsächlich = 2 × 8,99 € = 17,98 € — Mai (pausiert) zählt nicht."""
         monkeypatch.setattr("app.services.subscriptions.date", make_fake_date(2026, 5, 5))
         result = compute_tatsaechlich(
-            started_on=self.STARTED_ON,
-            period_months=self.PERIOD_MONTHS,
-            price_history=self.PRICE_HISTORY,
+            billing_history=self.BILLING_HISTORY,
             pause_history=self.PAUSE_HISTORY,
         )
         assert result == Decimal("17.98")
@@ -201,8 +206,7 @@ class TestS03PauseAndPriceChange:
         """Intervalle = 2 — nur Mär + Apr (Mai pausiert)."""
         monkeypatch.setattr("app.services.subscriptions.date", make_fake_date(2026, 5, 5))
         result = compute_intervalle(
-            started_on=self.STARTED_ON,
-            period_months=self.PERIOD_MONTHS,
+            billing_history=self.BILLING_HISTORY,
             pause_history=self.PAUSE_HISTORY,
         )
         assert result == 2
@@ -217,17 +221,15 @@ class TestS03PauseAndPriceChange:
         """
         monkeypatch.setattr("app.services.subscriptions.date", make_fake_date(2026, 5, 5))
         result = compute_dieses_kalenderjahr(
-            started_on=self.STARTED_ON,
-            period_months=self.PERIOD_MONTHS,
-            price_history=self.PRICE_HISTORY,
+            billing_history=self.BILLING_HISTORY,
             pause_history=self.PAUSE_HISTORY,
         )
         assert result == Decimal("87.91")
 
     def test_s03_next_due_date_after_pause(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Nächste Fälligkeit >= today(05.05.) ist 03.06.2026 — Mai liegt noch in Pause."""
+        """Naechste zukuenftige Faelligkeit > today(05.05.) ist 03.06.2026."""
         monkeypatch.setattr("app.services.subscriptions.date", make_fake_date(2026, 5, 5))
         # compute_next_due_date rechnet rein aus started_on+N×period — ohne Pausenberücksichtigung.
-        # Der nächste berechnete Termin >= 05.05.2026 ist 03.06.2026.
+        # Der naechste berechnete Termin > 05.05.2026 ist 03.06.2026.
         result = compute_next_due_date(self.STARTED_ON, self.PERIOD_MONTHS)
         assert result == date(2026, 6, 3)
