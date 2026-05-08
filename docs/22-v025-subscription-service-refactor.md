@@ -151,6 +151,7 @@ compute_next_due_date
 compute_next_due_date_from_history
 compute_due_dates_for_billing_history
 applicable_billing_terms
+applicable_price
 sync_subscription_billing_snapshot
 compute_tatsaechlich
 compute_intervalle
@@ -162,6 +163,14 @@ Regel:
 - So wenig DB-Zugriff wie moeglich.
 - Pure Funktionen bevorzugen.
 - Gut isoliert testbar.
+
+Hinweis zu `sync_subscription_billing_snapshot`:
+Setzt `sub.amount` und `sub.interval` aus der Billing-Historie — nur **In-Memory** auf dem ORM-Objekt, **kein** `session.commit()`.
+Gehoert weiterhin zu `billing.py`, weil die Auswahl der gueltigen Terms rein algorithmisch ist.
+
+Hinweis zu `applicable_price`:
+`applicable_price` wird intern von `delete_price_history_entry` in `mutations.py` benoetigt.
+Das geschieht als modul-interner Import (`from .billing import applicable_price`) — kein Public-Re-Export in `__init__.py` noetig.
 
 ### `readers.py`
 
@@ -476,6 +485,7 @@ logos.py      < 150 Zeilen
 ```
 
 Das sind keine harten Limits, sondern Warnlampen.
+`readers.py` kann durch `get_subscription_detail` und den Bulk-Load in `list_subscriptions` schneller wachsen — die Detail-Logik ist typisch der Haupttreiber.
 
 ---
 
@@ -508,6 +518,22 @@ from app.services.subscriptions import (
 ```
 
 Falls es keinen v0.2.4-Test mehr gibt, entsprechend nur existierende Testdateien ausfuehren.
+
+### `date.today`-Monkeypatch nach Package-Split
+
+`test_subscriptions_v023.py` und `test_subscriptions_v024.py` setzen u.a. `monkeypatch.setattr("app.services.subscriptions.date", ...)`.
+Im **Monolithen** wird `date.today()` ueber das eine Modul `app.services.subscriptions` aufgeloest.
+
+Nach dem Split importiert jedes Untermodul (`billing.py`, `readers.py`, `mutations.py`, `lifecycle.py`, …) **`from datetime import date` eigenstaendig**.
+Ein Patch nur auf `app.services.subscriptions.date` wirkt dann **nicht** mehr auf Code in `app.services.subscriptions.billing` usw. — die Tests koennen scheitern, obwohl die Produktionslogik unveraendert ist.
+
+Vorgehen beim Splitten:
+
+1. Im Package nach `date.today` suchen (z.B. `rg "date\\.today" backend/app/services/subscriptions/`).
+2. Pro betroffenes Untermodul den Monkeypatch-Pfad anpassen, z.B. `app.services.subscriptions.billing.date`, oder
+3. eine kleine Test-Hilfsfunktion nutzen, die dieselbe Fake-Date-Klasse auf **alle** genannten Modulstrings anwendet.
+
+Ohne diesen Schritt widerspricht „alle Tests laufen unveraendert“ (A-04) der technischen Realitaet.
 
 ---
 
@@ -547,21 +573,36 @@ Gegenmassnahme:
 - Kleine Commits oder Chunks.
 - Nach jedem Chunk Tests/import checks.
 
+### R-05: Tests — `date.today`-Monkeypatch nach Split
+
+Siehe Abschnitt **Testplan — `date.today`-Monkeypatch nach Package-Split**.
+Gegenmassnahme: Patch-Ziele pro Untermodul pflegen oder zentrale Test-Hilfe; nach dem Verschieben `rg`/Review der Aufrufe.
+
+### R-06: Bekannter Bug — falscher Fehlertyp in `delete_billing_history_entry`
+
+`delete_billing_history_entry` wirft an zwei Stellen `PriceEntryDeleteBlockedError`
+statt eines eigenen `BillingHistoryDeleteBlockedError`.
+
+Das ist kein Refactor-Blocker — der Fehlertyp ist identisch, nur der Name ist irrefuehrend.
+Nicht in v0.2.5 beheben (kein Verhaltens-Refactor), aber als Bug dokumentieren und separat entscheiden.
+
 ---
 
 ## Build Plan
 
-### Chunk 1 - Package-Shell
+### Chunk 1 - Atomarer Package-Cutover
 
 Dateien:
-- `backend/app/services/subscriptions.py`
+- `backend/app/services/subscriptions.py` (entfaellt nach dem Cutover)
 - `backend/app/services/subscriptions/__init__.py`
-- neue Package-Dateien als leere Platzhalter
+- `access.py`, `billing.py`, `constants.py`, `lifecycle.py`, `logos.py`, `mutations.py`, `readers.py`, `types.py`
 
 Aufgaben:
-- Package-Struktur anlegen.
-- Public API ueber `__init__.py` vorbereiten.
-- Sicherstellen, dass nicht Datei und Package gleichzeitig kollidieren.
+
+- **Kein** Zustand mit paralleler `subscriptions.py` und leerem `subscriptions/`-Package ueber mehr als einen kurzen lokalen Zwischenschritt: Python kann nicht sinnvoll beides gleichzeitig importieren (siehe Schritt 1 unter Refactor-Strategie).
+- Inhalt aus der Monolith-Datei in die Package-Module verschieben und interne Imports verdrahten; `__init__.py` re-exportiert die bisherige Public API.
+- `subscriptions.py` loeschen.
+- Import-Smoke-Test und erste `pytest`-Runde; Monkeypatch-Pfade in v023/v024 anpassen, sobald `date.today` in Untermodulen liegt.
 
 ### Chunk 2 - Constants, Types, Access
 
