@@ -132,6 +132,7 @@ export async function deleteBillingHistoryEntry(subscriptionId: string, entryId:
 // Intervall und Betrag gemeinsam ändern (v0.2.4).
 // valid_from = erste Fälligkeit im neuen Intervall — wird auch neuer Anker.
 // acknowledge_existing_payments=true nötig wenn ab valid_from bereits Buchungen existieren (409-Flow).
+// acknowledge_short_segment=true nötig wenn die Historie eine zu kurze Abrechnungsphase hätte (409-Flow).
 export async function intervalChange(id: string, payload: IntervalChangeRequest): Promise<SubscriptionDetail> {
   return apiFetch<SubscriptionDetail>(`/subscriptions/${id}/interval-change`, {
     method: 'POST',

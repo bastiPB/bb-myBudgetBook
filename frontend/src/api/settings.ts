@@ -1,12 +1,19 @@
 // Alle API-Aufrufe rund um systemweite Einstellungen.
 // Nur diese Datei darf fetch() für /settings-Endpunkte aufrufen.
 
+/** Gleiche Obergrenze wie Backend (schemas/settings.py) — für max= im Formular */
+export const SCHEDULER_CATCH_UP_DAYS_MAX = 730
+
 // Typ-Definition: was das Backend zurückgibt (entspricht AppSettingsRead im Backend)
 export interface SystemSettings {
   id: string
   email_signup_enabled: boolean
   // Welche Module systemweit verfügbar sind — Key = Modul-Key, Value = true/false
   modules: Record<string, boolean>
+  /** Tägliche Laufzeit des Buchungs-Schedulers, 24h-Format */
+  scheduler_time: string
+  /** Wie viele Tage verpasste Fälligkeiten noch nachgefüllt werden */
+  scheduler_catch_up_days: number
 }
 
 // Typ-Definition: was bei PATCH mitgeschickt wird (entspricht AppSettingsUpdate im Backend)
@@ -14,6 +21,25 @@ export interface SystemSettings {
 export interface SystemSettingsUpdate {
   email_signup_enabled?: boolean
   modules?: Record<string, boolean>
+  scheduler_time?: string
+  scheduler_catch_up_days?: number
+}
+
+/** FastAPI/Pydantic 422: detail ist oft ein Array mit msg-Feldern */
+function formatSettingsErrorDetail(detail: unknown): string {
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail)) {
+    return detail
+      .map((item: unknown) => {
+        if (typeof item === 'object' && item !== null && 'msg' in item) {
+          return String((item as { msg: string }).msg)
+        }
+        return ''
+      })
+      .filter(Boolean)
+      .join(' ')
+  }
+  return ''
 }
 
 // Dieselbe Hilfsfunktion wie in auth.ts — fetch + JSON + Fehlerbehandlung.
@@ -25,8 +51,9 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   })
 
   if (!response.ok) {
-    const body = await response.json().catch(() => ({}))
-    throw new Error(body.detail ?? `HTTP ${response.status}`)
+    const body = (await response.json().catch(() => ({}))) as { detail?: unknown }
+    const fromValidation = formatSettingsErrorDetail(body.detail)
+    throw new Error(fromValidation || (typeof body.detail === 'string' ? body.detail : '') || `HTTP ${response.status}`)
   }
 
   if (response.status === 204) return undefined as T

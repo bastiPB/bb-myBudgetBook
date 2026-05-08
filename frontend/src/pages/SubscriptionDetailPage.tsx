@@ -52,6 +52,21 @@ import './SubscriptionDetailPage.css'
 // Alle Intervalle in der gewünschten Reihenfolge für das Intervallwechsel-Dropdown
 const INTERVALS: BillingInterval[] = ['monthly', 'quarterly', 'semiannual', 'yearly', 'biennial']
 
+const MONTHS_PER_PERIOD: Record<BillingInterval, number> = {
+  monthly: 1,
+  quarterly: 3,
+  semiannual: 6,
+  yearly: 12,
+  biennial: 24,
+}
+
+function parseAmountInput(input: string): number | null {
+  // UI-Helfer: "12,99" oder "12.99" erlauben. Keine Validierung von Währung/Locale hier.
+  const normalized = input.trim().replace(',', '.')
+  const n = Number(normalized)
+  return Number.isFinite(n) ? n : null
+}
+
 // Typ für den Bestätigungs-Modal-State
 type ModalState = {
   title: string
@@ -120,6 +135,8 @@ export default function SubscriptionDetailPage() {
   const [intervalError, setIntervalError] = useState<string | null>(null)
   // Zwei-Phasen-Flow: User bestätigt bewusst dass vorhandene Buchungen betroffen sind (409-Flow)
   const [intervalAcknowledge, setIntervalAcknowledge] = useState(false)
+  // Kurze Abrechnungsphase (z.B. jährlich nur 2 Monate bis zum nächsten Historien-Eintrag)
+  const [intervalAcknowledgeShortSegment, setIntervalAcknowledgeShortSegment] = useState(false)
 
   // Bestätigungs-Modal (Pausieren, Fortsetzen, Kündigen, Einträge löschen)
   const [modal, setModal] = useState<ModalState | null>(null)
@@ -350,6 +367,7 @@ export default function SubscriptionDetailPage() {
         valid_from: intervalForm.valid_from,
         // Nur mitsenden wenn User explizit bestätigt hat — sonst weglassen
         ...(intervalAcknowledge ? { acknowledge_existing_payments: true } : {}),
+        ...(intervalAcknowledgeShortSegment ? { acknowledge_short_segment: true } : {}),
       })
       setSub(updated)
       const [history, billing] = await Promise.all([getPriceHistory(sub.id), getBillingHistory(sub.id)])
@@ -357,6 +375,7 @@ export default function SubscriptionDetailPage() {
       setBillingHistory(billing)
       setIntervalForm({ amount: '', interval: 'monthly', valid_from: '' })
       setIntervalAcknowledge(false)
+      setIntervalAcknowledgeShortSegment(false)
       setShowIntervalForm(false)
     } catch (err) {
       setIntervalError(err instanceof Error ? err.message : 'Fehler beim Speichern.')
@@ -376,6 +395,8 @@ export default function SubscriptionDetailPage() {
 
   // Acknowledge-Checkbox nur anzeigen wenn der Fehler auf vorhandene Buchungen hinweist
   const showAcknowledgeCheckbox = intervalError !== null && intervalError.includes('Buchung')
+  const showShortSegmentCheckbox =
+    intervalError !== null && intervalError.includes('Kurze Abrechnungsphase')
 
   return (
     <div className="detail-page">
@@ -552,7 +573,7 @@ export default function SubscriptionDetailPage() {
             <div className="detail-price-form-row">
               <input
                 className="subs-input subs-input-sm"
-                placeholder="Neuer Betrag (z. B. 79,99)"
+                placeholder="Neuer Betrag pro Intervall (z. B. 79,99)"
                 value={intervalForm.amount}
                 onChange={e => setIntervalForm(f => ({ ...f, amount: e.target.value }))}
                 required
@@ -576,6 +597,16 @@ export default function SubscriptionDetailPage() {
                 required
               />
             </div>
+            <p className="detail-notes-muted" style={{ marginTop: '6px' }}>
+              {(() => {
+                const amount = parseAmountInput(intervalForm.amount)
+                if (amount === null) return 'Hinweis: Der Betrag gilt immer pro gewähltem Intervall (z. B. bei „Vierteljährlich“ pro Quartal).'
+                const months = MONTHS_PER_PERIOD[intervalForm.interval]
+                const yearly = (amount * 12) / months
+                const label = INTERVAL_LABELS[intervalForm.interval]
+                return `Hinweis: Der Betrag ist pro „${label}“. Das entspricht ca. ${yearly.toFixed(2).replace('.', ',')} € pro Jahr.`
+              })()}
+            </p>
             {intervalError && (
               <>
                 <p className="detail-notes-error">{intervalError}</p>
@@ -589,6 +620,16 @@ export default function SubscriptionDetailPage() {
                       onChange={e => setIntervalAcknowledge(e.target.checked)}
                     />
                     Ich bestätige, dass die vorhandenen Buchungen angepasst werden sollen.
+                  </label>
+                )}
+                {showShortSegmentCheckbox && (
+                  <label style={{ display: 'flex', gap: '8px', alignItems: 'flex-start', margin: '8px 0', fontSize: '0.875rem' }}>
+                    <input
+                      type="checkbox"
+                      checked={intervalAcknowledgeShortSegment}
+                      onChange={e => setIntervalAcknowledgeShortSegment(e.target.checked)}
+                    />
+                    Ich bestätige trotzdem: Die Abrechnungsphase ist kürzer als eine volle Periode (Absicht oder Korrektur später).
                   </label>
                 )}
               </>
@@ -605,6 +646,7 @@ export default function SubscriptionDetailPage() {
                   setIntervalForm({ amount: '', interval: 'monthly', valid_from: '' })
                   setIntervalError(null)
                   setIntervalAcknowledge(false)
+                  setIntervalAcknowledgeShortSegment(false)
                 }}
               >
                 Abbrechen

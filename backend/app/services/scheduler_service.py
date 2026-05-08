@@ -22,14 +22,11 @@ from app.models.subscription import (
 )
 from app.models.user_module_configurations import UserModuleConfiguration
 from app.schemas.module_config import UserModuleConfigRead, UserModuleConfigUpdate
+from app.services.settings import get_settings as get_app_settings
 from app.services.subscriptions import (
     compute_due_dates_for_billing_history,
     is_in_pause,
 )
-
-# Wie viele Tage rückwirkend werden verpasste Fälligkeiten nachgefüllt?
-# 60 Tage = zwei Monate Puffer, z.B. nach längerem Server-Ausfall.
-CATCH_UP_DAYS = 60
 
 
 def get_or_create_module_config(session: Session, user_id: uuid.UUID) -> UserModuleConfiguration:
@@ -108,7 +105,7 @@ def generate_scheduled_payments(session: Session) -> int:
 
     Neu in v0.2.3 gegenüber v0.2.2:
     - Period-basiert: due_date = berechneter Fälligkeitstag (nicht mehr date.today())
-    - Catch-up: Fälligkeiten bis 60 Tage rückwirkend werden nachgefüllt
+    - Catch-up: Fälligkeiten bis X Tage rückwirkend (app_settings.scheduler_catch_up_days)
     - suspended → paused-Einträge (kein Betrag, Status "paused")
     - canceled → gar keine Einträge (Tabelle endet sauber)
     - N+1 eliminiert: Pause-History per Bulk für alle Abos geladen
@@ -121,8 +118,9 @@ def generate_scheduled_payments(session: Session) -> int:
     Der UNIQUE-Constraint (subscription_id, due_date) in der DB ist die zweite Verteidigungslinie.
     """
     today = date.today()
-    # Frühester Fälligkeitstag, der noch berücksichtigt wird (60-Tage-Fenster)
-    cutoff = today - timedelta(days=CATCH_UP_DAYS)
+    app_cfg = get_app_settings(session)
+    # Frühester Fälligkeitstag, der noch berücksichtigt wird (Catch-up-Fenster aus DB)
+    cutoff = today - timedelta(days=app_cfg.scheduler_catch_up_days)
     created_count = 0
 
     # Alle User-IDs ermitteln, die subscription_booking_history aktiviert haben.

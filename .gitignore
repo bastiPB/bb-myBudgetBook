@@ -62,6 +62,7 @@ secret/
 # AI / Tools
 # =========================
 CLAUDE.md
+.cursor/
 
 # =========================
 # Lokale persönliche Notizen

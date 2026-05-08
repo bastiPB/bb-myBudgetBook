@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, String
+from sqlalchemy import Boolean, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -28,3 +28,7 @@ class AppSettings(BaseModel):
     # Uhrzeit, zu der der Scheduler täglich Soll-Buchungen generiert — Format "HH:MM"
     # Wird beim App-Start in main.py ausgelesen und an APScheduler übergeben
     scheduler_time: Mapped[str] = mapped_column(String(5), nullable=False, default="03:00")
+
+    # Wie viele Tage in die Vergangenheit der Scheduler noch Soll-Buchungen nachfuellt
+    # (Catch-up). Admin konfigurierbar; API max. 730 Tage.
+    scheduler_catch_up_days: Mapped[int] = mapped_column(Integer, nullable=False, default=60)

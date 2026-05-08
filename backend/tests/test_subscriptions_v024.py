@@ -47,6 +47,8 @@ from app.services.subscriptions import (
     compute_next_due_date_from_history,
     compute_tatsaechlich,
 )
+from app.exceptions import ShortBillingSegmentError
+from app.services.subscriptions.billing import first_short_billing_segment_message
 
 _SUBSCRIPTIONS_SERVICE_DATE_MODULES = (
     "app.services.subscriptions.billing",
@@ -405,7 +407,10 @@ class TestT09DiesesKalenderjahr:
 
     Monatlich Jan–Jun (6 Perioden × 9,99 € = 59,94 €)
     Jährlich  ab Jul-01, Anker Jul-01 (1 Periode × 99,99 € = 99,99 €)
-    Dieses Jahr = 59,94 + 99,99 = 159,93 €
+    Dieses Jahr (Budget/anteilig):
+      - Jan–Jun: 6 × 9,99 € = 59,94 €
+      - Jul–Dez: 6 Monate vom Jahresbetrag → 6 × (99,99 / 12) = 49,995 € → 50,00 €
+    Dieses Jahr = 59,94 + 50,00 = 109,94 €
 
     Hinweis: auch zukünftige Einträge (Jul-01 > today) fließen automatisch ein,
     da compute_dieses_kalenderjahr bis Dez-31 rechnet. Das ergibt den
@@ -420,7 +425,7 @@ class TestT09DiesesKalenderjahr:
     def test_t09_jahreskosten_mit_intervallwechsel(self, monkeypatch: pytest.MonkeyPatch) -> None:
         patch_subscriptions_service_date(monkeypatch, make_fake_date(2026, 5, 6))
         result = compute_dieses_kalenderjahr(self.HISTORY, [])
-        assert result == Decimal("159.93")
+        assert result == Decimal("109.94")
 
 
 # ─── T-10: compute_next_due_date_from_history — nach Intervallwechsel ─────────
@@ -463,3 +468,59 @@ class TestT10NextDueDateFromHistory:
         """Leere Historie → Sentinel-Datum 9999-12-31 (kein Absturz, kein None)."""
         result = compute_next_due_date_from_history([], date(2026, 5, 6))
         assert result == date(9999, 12, 31)
+
+
+# ─── T-11: first_short_billing_segment_message — Kurze Abrechnungsphase ───────
+
+class TestT11ShortBillingSegment:
+    """Plausibilitaet: Segment kuerzer als eine volle Periode des Intervalls."""
+
+    def test_t11_yearly_then_monthly_two_months_later_warns(self) -> None:
+        """Jährlich ab 01.08., naechster Eintrag 01.10. → Meldung mit Marker."""
+        hist = [
+            bh_entry("8.99", BillingInterval.monthly, date(2025, 12, 10)),
+            bh_entry("95.88", BillingInterval.yearly, date(2026, 8, 1)),
+            bh_entry("10.00", BillingInterval.monthly, date(2026, 10, 1)),
+        ]
+        msg = first_short_billing_segment_message(hist)
+        assert msg is not None
+        assert "Kurze Abrechnungsphase" in msg
+        assert "acknowledge_short_segment=true" in msg
+
+    def test_t11_yearly_full_year_until_next_change_ok(self) -> None:
+        """Jährlich ab 01.08.2026, naechster Wechsel ab 01.08.2027 → keine Meldung."""
+        hist = [
+            bh_entry("8.99", BillingInterval.monthly, date(2025, 12, 10)),
+            bh_entry("95.88", BillingInterval.yearly, date(2026, 8, 1)),
+            bh_entry("10.00", BillingInterval.monthly, date(2027, 8, 1)),
+        ]
+        assert first_short_billing_segment_message(hist) is None
+
+    def test_t11_quarterly_gap_under_three_months_warns(self) -> None:
+        """Vierteljährlich ab 01.08., naechster Eintrag 01.09. (< 3 Monate) → Meldung."""
+        hist = [
+            bh_entry("9.99", BillingInterval.monthly, date(2026, 1, 1)),
+            bh_entry("30.00", BillingInterval.quarterly, date(2026, 8, 1)),
+            bh_entry("9.99", BillingInterval.monthly, date(2026, 9, 1)),
+        ]
+        msg = first_short_billing_segment_message(hist)
+        assert msg is not None
+        assert "Kurze Abrechnungsphase" in msg
+
+    def test_t11_unsorted_input_still_detects(self) -> None:
+        """Eingabe unsortiert — Funktion sortiert intern."""
+        hist = [
+            bh_entry("10.00", BillingInterval.monthly, date(2026, 10, 1)),
+            bh_entry("95.88", BillingInterval.yearly, date(2026, 8, 1)),
+            bh_entry("8.99", BillingInterval.monthly, date(2025, 12, 10)),
+        ]
+        assert first_short_billing_segment_message(hist) is not None
+
+    def test_t11_single_entry_no_message(self) -> None:
+        assert first_short_billing_segment_message([bh_entry("9.99", BillingInterval.monthly, date(2026, 1, 1))]) is None
+
+    def test_t11_short_segment_exception_is_409(self) -> None:
+        """API-Handler mappt AppError auf HTTP-Status — Kurzphase nutzt 409."""
+        err = ShortBillingSegmentError("Kurze Abrechnungsphase: …")
+        assert err.status_code == 409
+        assert "Kurze Abrechnungsphase" in err.message

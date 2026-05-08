@@ -10,7 +10,11 @@ from app.config import get_settings
 from app.database import SessionLocal
 from app.exceptions import register_exception_handlers
 from app.routers import admin, auth, profile, settings, subscriptions
+from app.scheduler_control import register_payment_scheduler_job
 from app.services.scheduler_service import generate_scheduled_payments
+
+# Feste Job-ID: reschedule_job in scheduler_control braucht dieselbe ID
+SCHEDULED_PAYMENTS_JOB_ID = "scheduled_payments_daily"
 
 # Globale Scheduler-Instanz — wird im lifespan-Handler gestartet und gestoppt.
 # BackgroundScheduler läuft in einem eigenen Thread neben dem FastAPI-Prozess.
@@ -57,8 +61,16 @@ async def lifespan(app: FastAPI):
         db_settings = get_db_settings(session)
         hour, minute = map(int, db_settings.scheduler_time.split(":"))
 
-    # Täglich zur konfigurierten Uhrzeit ausführen
-    _scheduler.add_job(_run_scheduler_job, "cron", hour=hour, minute=minute)
+    # Täglich zur konfigurierten Uhrzeit ausführen (replace_existing: Neustart nach Deploy)
+    _scheduler.add_job(
+        _run_scheduler_job,
+        "cron",
+        hour=hour,
+        minute=minute,
+        id=SCHEDULED_PAYMENTS_JOB_ID,
+        replace_existing=True,
+    )
+    register_payment_scheduler_job(_scheduler, SCHEDULED_PAYMENTS_JOB_ID)
     _scheduler.start()
 
     yield  # App läuft hier — alles danach ist Cleanup beim Stopp
