@@ -5,6 +5,12 @@ Format based on Keep a Changelog.
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-05-05
+
+### Documentation
+- [docs/21-v024-subscription-interval-change.md](docs/21-v024-subscription-interval-change.md): Spezifikation **v0.2.4** — Abwechsel von Abrechnungsintervallen (Preis + Intervall + Fälligkeitsanker in `subscription_billing_history`), segmentierte Due-Date-Algorithmen, Endpoint `POST /subscriptions/{id}/interval-change`, Migration von reiner Preishistorie, Akzeptanzkriterien und Test-Szenarien
+- [docs/22-v025-subscription-service-refactor.md](docs/22-v025-subscription-service-refactor.md): Spezifikation **v0.2.5** — struktureller Refactor des Subscription-Service als Package `backend/app/services/subscriptions/` (Untermodule billing, readers, mutations, lifecycle, logos, access, constants, types), stabile Imports `from app.services.subscriptions import …`, Import-/Zyklus-Regeln, Monkeypatch-Hinweis für Tests nach dem Split, Build-Plan in Chunks
+
 ## [0.2.3] - 2026-05-05
 
 ### Breaking Changes
