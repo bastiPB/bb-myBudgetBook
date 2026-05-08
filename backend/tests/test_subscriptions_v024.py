@@ -20,8 +20,8 @@ Szenarien:
   T-09: compute_dieses_kalenderjahr — Jahreskosten mit Intervallwechsel in der Jahresmitte
   T-10: compute_next_due_date_from_history — nächste Fälligkeit nach Intervallwechsel
 
-Monkeypatch-Strategie: identisch zu v0.2.3 — FakeDate ersetzt date.today() im
-subscriptions-Modul damit die Algorithmen deterministisch laufen.
+Monkeypatch-Strategie: wie v0.2.3 — patch_subscriptions_service_date ersetzt date
+in allen Subscription-Service-Untermodulen (siehe test_subscriptions_v023.py).
 
 Keine DB: alle Tests testen Service-Logik isoliert (reine Python-Objekte).
 
@@ -47,6 +47,22 @@ from app.services.subscriptions import (
     compute_next_due_date_from_history,
     compute_tatsaechlich,
 )
+
+_SUBSCRIPTIONS_SERVICE_DATE_MODULES = (
+    "app.services.subscriptions.billing",
+    "app.services.subscriptions.readers",
+    "app.services.subscriptions.mutations",
+    "app.services.subscriptions.lifecycle",
+)
+
+
+def patch_subscriptions_service_date(
+    monkeypatch: pytest.MonkeyPatch,
+    fake_date_cls: type[date],
+) -> None:
+    """Setzt dieselbe Fake-date-Klasse in allen Subscription-Service-Untermodulen."""
+    for mod in _SUBSCRIPTIONS_SERVICE_DATE_MODULES:
+        monkeypatch.setattr(f"{mod}.date", fake_date_cls)
 
 
 # ─── Test-Hilfsobjekte ────────────────────────────────────────────────────────
@@ -84,7 +100,7 @@ def make_fake_date(year: int, month: int, day: int):
     Gibt eine date-Unterklasse zurück deren today() das angegebene Datum liefert.
 
     Verwendung:
-        monkeypatch.setattr("app.services.subscriptions.date", make_fake_date(2026, 5, 6))
+        patch_subscriptions_service_date(monkeypatch, make_fake_date(2026, 5, 6))
 
     Identisch zur Implementierung in test_subscriptions_v023.py.
     """
@@ -121,28 +137,28 @@ class TestT01ApplicableBillingTerms:
 
     def test_t01_before_change(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """due_date = Mär-01, liegt vor Apr-Wechsel → erster Eintrag (8,99 €)."""
-        monkeypatch.setattr("app.services.subscriptions.date", make_fake_date(2026, 5, 5))
+        patch_subscriptions_service_date(monkeypatch, make_fake_date(2026, 5, 5))
         result = applicable_billing_terms(date(2026, 3, 1), self.HISTORY)
         assert result is not None
         assert result.amount == Decimal("8.99")
 
     def test_t01_after_change(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """due_date = Mai-01, liegt nach Apr-Wechsel → zweiter Eintrag (9,99 €)."""
-        monkeypatch.setattr("app.services.subscriptions.date", make_fake_date(2026, 5, 5))
+        patch_subscriptions_service_date(monkeypatch, make_fake_date(2026, 5, 5))
         result = applicable_billing_terms(date(2026, 5, 1), self.HISTORY)
         assert result is not None
         assert result.amount == Decimal("9.99")
 
     def test_t01_on_change_date(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """due_date = Apr-01 (genau auf Wechseldatum) → zweiter Eintrag (Grenze inklusiv)."""
-        monkeypatch.setattr("app.services.subscriptions.date", make_fake_date(2026, 5, 5))
+        patch_subscriptions_service_date(monkeypatch, make_fake_date(2026, 5, 5))
         result = applicable_billing_terms(date(2026, 4, 1), self.HISTORY)
         assert result is not None
         assert result.amount == Decimal("9.99")
 
     def test_t01_before_history_start(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Datum vor dem ersten Eintrag → None (noch kein gültiger Billing-Eintrag)."""
-        monkeypatch.setattr("app.services.subscriptions.date", make_fake_date(2026, 5, 5))
+        patch_subscriptions_service_date(monkeypatch, make_fake_date(2026, 5, 5))
         result = applicable_billing_terms(date(2025, 12, 31), self.HISTORY)
         assert result is None
 
@@ -172,14 +188,14 @@ class TestT02IncludeFuture:
 
     def test_t02_future_ignored_without_flag(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """include_future=False: Aug-Wechsel > today → unsichtbar → Sep-01 bekommt Jan-Eintrag."""
-        monkeypatch.setattr("app.services.subscriptions.date", make_fake_date(2026, 5, 5))
+        patch_subscriptions_service_date(monkeypatch, make_fake_date(2026, 5, 5))
         result = applicable_billing_terms(date(2026, 9, 1), self.HISTORY, include_future=False)
         assert result is not None
         assert result.amount == Decimal("9.99")
 
     def test_t02_future_visible_with_flag(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """include_future=True: Aug-Wechsel sichtbar → Sep-01 bekommt Aug-Eintrag (99,99 €)."""
-        monkeypatch.setattr("app.services.subscriptions.date", make_fake_date(2026, 5, 5))
+        patch_subscriptions_service_date(monkeypatch, make_fake_date(2026, 5, 5))
         result = applicable_billing_terms(date(2026, 9, 1), self.HISTORY, include_future=True)
         assert result is not None
         assert result.amount == Decimal("99.99")
@@ -329,7 +345,7 @@ class TestT06Tatsaechlich:
     ]
 
     def test_t06_combined_total(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr("app.services.subscriptions.date", make_fake_date(2026, 7, 1))
+        patch_subscriptions_service_date(monkeypatch, make_fake_date(2026, 7, 1))
         result = compute_tatsaechlich(self.HISTORY, [])
         assert result == Decimal("79.95")
 
@@ -351,7 +367,7 @@ class TestT07TatsaechlichWithPause:
 
     def test_t07_paused_period_excluded(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Apr-01 in Pause → nur 4 Perioden werden summiert."""
-        monkeypatch.setattr("app.services.subscriptions.date", make_fake_date(2026, 5, 5))
+        patch_subscriptions_service_date(monkeypatch, make_fake_date(2026, 5, 5))
         result = compute_tatsaechlich(self.HISTORY, self.PAUSES)
         assert result == Decimal("39.96")
 
@@ -369,13 +385,13 @@ class TestT08Intervalle:
 
     def test_t08_no_pause(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Ohne Pause: 5 Zahlungsperioden."""
-        monkeypatch.setattr("app.services.subscriptions.date", make_fake_date(2026, 5, 5))
+        patch_subscriptions_service_date(monkeypatch, make_fake_date(2026, 5, 5))
         result = compute_intervalle(self.HISTORY, [])
         assert result == 5
 
     def test_t08_with_pause(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Apr-01 pausiert → 4 Zahlungsperioden."""
-        monkeypatch.setattr("app.services.subscriptions.date", make_fake_date(2026, 5, 5))
+        patch_subscriptions_service_date(monkeypatch, make_fake_date(2026, 5, 5))
         pauses = [pause_entry(date(2026, 3, 15), date(2026, 4, 15))]
         result = compute_intervalle(self.HISTORY, pauses)
         assert result == 4
@@ -402,7 +418,7 @@ class TestT09DiesesKalenderjahr:
     ]
 
     def test_t09_jahreskosten_mit_intervallwechsel(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr("app.services.subscriptions.date", make_fake_date(2026, 5, 6))
+        patch_subscriptions_service_date(monkeypatch, make_fake_date(2026, 5, 6))
         result = compute_dieses_kalenderjahr(self.HISTORY, [])
         assert result == Decimal("159.93")
 
