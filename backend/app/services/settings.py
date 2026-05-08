@@ -48,9 +48,19 @@ def update_settings(session: Session, payload: AppSettingsUpdate) -> AppSettings
         settings.modules = dict(payload.modules)
 
     if payload.scheduler_time is not None:
-        # Format "HH:MM" speichern — wird in main.py beim App-Start ausgelesen
+        # Format "HH:MM" speichern — main.py / scheduler_control passen den Cron an
         settings.scheduler_time = payload.scheduler_time
+
+    if payload.scheduler_catch_up_days is not None:
+        settings.scheduler_catch_up_days = payload.scheduler_catch_up_days
 
     session.commit()
     session.refresh(settings)
+
+    # Nach Commit: APScheduler ohne Neustart auf neue Uhrzeit stellen (falls gebunden)
+    if payload.scheduler_time is not None:
+        from app.scheduler_control import reschedule_payment_scheduler_daily
+
+        reschedule_payment_scheduler_daily(settings.scheduler_time)
+
     return settings

@@ -260,6 +260,12 @@ class IntervalChangeRequest(BaseModel):
                        Scheduled Payments existieren.
       True:            Speichert die neue Billing-Historie trotzdem — bestehende
                        Scheduled Payments bleiben unverändert (bewusste User-Entscheidung).
+
+    acknowledge_short_segment:
+      False (default): Blockt mit 409, wenn durch die neue Historie eine Abrechnungsphase
+                       kürzer als eine volle Periode des Intervalls entstünde (z.B. jährlich
+                       ab 01.08., nächster Eintrag schon 01.10.).
+      True:            Speichert trotzdem — bewusste Bestätigung durch den Nutzer.
     """
 
     amount: Decimal
@@ -268,6 +274,8 @@ class IntervalChangeRequest(BaseModel):
     valid_from: date
     # Sicherheits-Flag: bei rückwirkenden Änderungen mit vorhandenen Buchungen nötig
     acknowledge_existing_payments: bool = False
+    # Sicherheits-Flag: kurze Abrechnungsphase zwischen zwei Historien-Einträgen
+    acknowledge_short_segment: bool = False
 
     @field_validator("amount", mode="before")
     @classmethod

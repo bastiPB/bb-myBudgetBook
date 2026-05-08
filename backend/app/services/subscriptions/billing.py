@@ -5,10 +5,51 @@ from decimal import Decimal
 
 from dateutil.relativedelta import relativedelta
 
-from app.models.subscription import Subscription
+from app.models.subscription import BillingInterval, Subscription
 
-from .constants import _MONTHS_PER_PERIOD
+from .constants import _MONTHLY_FACTOR, _MONTHS_PER_PERIOD
 from .types import ComputedDue
+
+# Kurze deutsche Labels nur fuer Fehlermeldungen (Intervallwechsel-Plausibilitaet).
+_INTERVAL_LABEL_DE: dict[BillingInterval, str] = {
+    BillingInterval.monthly: "monatlich",
+    BillingInterval.quarterly: "vierteljährlich",
+    BillingInterval.semiannual: "halbjährlich",
+    BillingInterval.yearly: "jährlich",
+    BillingInterval.biennial: "alle zwei Jahre",
+}
+
+
+def first_short_billing_segment_message(billing_history: list) -> str | None:
+    """
+    Prueft sortierte Billing-Historie auf ein Segment, das kuerzer als eine volle
+    Abrechnungsperiode des vorherigen Eintrags ist.
+
+    Beispiel: ab 01.08. „jährlich" — naechster Eintrag ab 01.10. bedeutet weniger als
+    12 Monate Laufzeit im Jahresintervall (typischer Eingabefehler).
+
+    Gibt None zurueck wenn alles plausibel ist, sonst eine deutsche Meldung mit
+    Marker-Substring „Kurze Abrechnungsphase" fuer die UI-Erkennung.
+    """
+    if len(billing_history) < 2:
+        return None
+
+    ordered = sorted(billing_history, key=lambda h: h.valid_from)
+    for i in range(len(ordered) - 1):
+        a, b = ordered[i], ordered[i + 1]
+        period_months = _MONTHS_PER_PERIOD[a.interval]
+        # Ende einer vollen Periode ab Wirkungsdatum des Segments (nicht Anker — Fachregel laut Plan).
+        min_next_valid_from = a.valid_from + relativedelta(months=period_months)
+        if b.valid_from < min_next_valid_from:
+            label = _INTERVAL_LABEL_DE.get(a.interval, str(a.interval))
+            return (
+                "Kurze Abrechnungsphase: Ab "
+                f"{a.valid_from.strftime('%d.%m.%Y')} gilt {label} — der nächste Eintrag beginnt "
+                f"aber schon am {b.valid_from.strftime('%d.%m.%Y')}. "
+                "Damit liegt weniger als eine volle Periode dazwischen. "
+                "Bitte mit acknowledge_short_segment=true bestätigen, um fortzufahren."
+            )
+    return None
 
 
 def compute_due_dates(started_on: date, period_months: int, up_to: date) -> list[date]:
@@ -279,11 +320,37 @@ def compute_dieses_kalenderjahr(
     jan_1 = date(today.year, 1, 1)
     dez_31 = date(today.year, 12, 31)
     total = Decimal("0")
+
+    # Fachliche Entscheidung:
+    # "Dieses Jahr" ist eine Budget-Orientierung. Darum wird bei langen Intervallen
+    # (quarterly / semiannual / yearly / biennial) der Betrag anteilig auf Monate verteilt,
+    # statt den vollen Betrag im Fälligkeitsmonat zu zählen.
+    year_end_exclusive = date(today.year + 1, 1, 1)
+
     for due in compute_due_dates_for_billing_history(billing_history, dez_31):
-        # Perioden vor dem 1. Januar dieses Jahres ueberspringen
-        if due.due_date < jan_1:
-            continue
         if is_in_pause(due.due_date, pause_history):
             continue
-        total += due.amount
-    return total
+
+        period_months = _MONTHS_PER_PERIOD[due.interval]
+
+        # Wir rechnen monatsbasiert: jede Periode deckt period_months Kalendermonate ab,
+        # beginnend im Monat des due_date (Tag wird für Budgetzwecke ignoriert).
+        coverage_start = date(due.due_date.year, due.due_date.month, 1)
+        coverage_end = coverage_start + relativedelta(months=period_months)
+
+        overlap_start = max(coverage_start, jan_1)
+        overlap_end = min(coverage_end, year_end_exclusive)
+        if overlap_end <= overlap_start:
+            continue
+
+        # Anzahl ganzer Monate im Overlap (z.B. Aug→Jan = 5 Monate: Aug,Sep,Okt,Nov,Dez)
+        months_overlap = (overlap_end.year - overlap_start.year) * 12 + (overlap_end.month - overlap_start.month)
+        if months_overlap <= 0:
+            continue
+
+        # Umsetzung über Konstanten:
+        # Monatsanteil = amount * _MONTHLY_FACTOR[interval]
+        # Jahresanteil im Kalenderjahr = Monatsanteil * Anzahl überlappender Monate
+        monthly_share = due.amount * _MONTHLY_FACTOR[due.interval]
+        total += monthly_share * Decimal(months_overlap)
+    return total.quantize(Decimal("0.01"))

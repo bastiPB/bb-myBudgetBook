@@ -11,6 +11,21 @@ Format based on Keep a Changelog.
 - [docs/21-v024-subscription-interval-change.md](docs/21-v024-subscription-interval-change.md): Spezifikation **v0.2.4** — Abwechsel von Abrechnungsintervallen (Preis + Intervall + Fälligkeitsanker in `subscription_billing_history`), segmentierte Due-Date-Algorithmen, Endpoint `POST /subscriptions/{id}/interval-change`, Migration von reiner Preishistorie, Akzeptanzkriterien und Test-Szenarien
 - [docs/22-v025-subscription-service-refactor.md](docs/22-v025-subscription-service-refactor.md): Spezifikation **v0.2.5** — struktureller Refactor des Subscription-Service als Package `backend/app/services/subscriptions/` (Untermodule billing, readers, mutations, lifecycle, logos, access, constants, types), stabile Imports `from app.services.subscriptions import …`, Import-/Zyklus-Regeln, Monkeypatch-Hinweis für Tests nach dem Split, Build-Plan in Chunks
 
+### Added
+- **Intervallwechsel — kurze Abrechnungsphase**: `POST /subscriptions/{id}/interval-change` akzeptiert `acknowledge_short_segment` (default `false`). Wenn die zusammengefügte Abrechnungshistorie ein Segment kürzer als eine volle Periode des Intervalls ergeben würde (z.B. jährlich ab 01.08., nächster Eintrag schon 01.10.), antwortet die API mit **409** und Marker „Kurze Abrechnungsphase"; die Detailseite zeigt eine **zweite Bestätigungs-Checkbox** (analog zu bestehenden Buchungen).
+- **Scheduler konfigurierbar (Admin)**: Systemeinstellungen enthalten jetzt `scheduler_catch_up_days` (default **60**, max **730**) für das rückwirkende Nachtragen verpasster Fälligkeiten. Zusätzlich kann die tägliche `scheduler_time` über die Systemeinstellungen geändert werden und wird **ohne App-Neustart** auf den laufenden APScheduler-Job angewendet.
+
+### Fixed
+- **BUG-08**: Kennzahl „Dieses Kalenderjahr" reagierte bei Intervallwechseln (z.B. monatlich → jährlich) fachlich falsch — der volle Jahresbetrag wurde im Fälligkeitsmonat komplett gezählt, wodurch „Dieses Jahr" bei einem Wechsel auf längere Intervalle scheinbar stark anstieg. Die Kennzahl ist jetzt **monatsbasiert anteilig** (Budget-Orientierung) und nutzt dabei die zentralen Faktoren aus `services/subscriptions/constants.py` (betrifft auch quarterly/semiannual/biennial).
+- **UI**: Intervallwechsel-Formular klarer gemacht: Betrag ist **pro ausgewähltem Intervall**; zusätzlich wird ein Hinweis „entspricht ca. X € pro Jahr" angezeigt, um Verwechslungen (z.B. Jahresbetrag in Quartalsfeld) sofort sichtbar zu machen.
+- **Billing-Historie**: Löschen eines Abrechnungseintrags führt nicht mehr zu HTTP 500 bei mehreren betroffenen Buchungen (`MultipleResultsFound`). Stattdessen wird die Aktion sauber mit **409** blockiert, wenn Buchungen im betroffenen Zeitraum existieren. Zusätzlich ist der **initiale Abrechnungseintrag** (Abo-Start) nicht mehr löschbar.
+
+### Database Migrations
+- `n4o5p6q7` — v0.2.5: `app_settings.scheduler_catch_up_days` (default 60) für das Catch-up-Fenster des Buchungs-Schedulers.
+
+### Tests
+- `test_settings_scheduler.py`: Validierung für `scheduler_time` (HH:MM) und `scheduler_catch_up_days` (0…730).
+
 ## [0.2.3] - 2026-05-05
 
 ### Breaking Changes

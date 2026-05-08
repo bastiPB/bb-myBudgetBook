@@ -4,7 +4,11 @@
 import { useEffect, useState } from 'react'
 
 import { triggerScheduledPayments } from '../api/admin'
-import { fetchSystemSettings, patchSystemSettings } from '../api/settings'
+import {
+  fetchSystemSettings,
+  patchSystemSettings,
+  SCHEDULER_CATCH_UP_DAYS_MAX,
+} from '../api/settings'
 import type { SystemSettings } from '../api/settings'
 import { useModules } from '../context/useModules'
 import { MODULE_REGISTRY } from '../modules/registry'
@@ -18,10 +22,18 @@ export default function SettingsPage() {
   // State für Scheduler-Trigger (Abschnitt 3)
   const [triggerResult, setTriggerResult] = useState<string | null>(null)
   const [triggering, setTriggering] = useState(false)
+  // Lokaler Entwurf für Scheduler-Felder (Speichern erst auf Klick)
+  const [schedulerTime, setSchedulerTime] = useState('03:00')
+  const [catchUpDays, setCatchUpDays] = useState(60)
 
   useEffect(() => {
     fetchSystemSettings()
-      .then(setSettings)
+      .then(s => {
+        setSettings(s)
+        // Entwurf initial aus Serverwerten setzen (ohne extra useEffect → ESLint-konform)
+        setSchedulerTime(s.scheduler_time)
+        setCatchUpDays(s.scheduler_catch_up_days)
+      })
       .catch(() => setError('Einstellungen konnten nicht geladen werden.'))
   }, [])
 
@@ -36,6 +48,30 @@ export default function SettingsPage() {
       setSettings(updated)
       // ModulesContext aktualisieren — availableModules und activeModules neu berechnen
       reload()
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function saveSchedulerSettings() {
+    if (!settings) return
+    if (catchUpDays > SCHEDULER_CATCH_UP_DAYS_MAX || catchUpDays < 0) {
+      setError(`Maximal ${SCHEDULER_CATCH_UP_DAYS_MAX} Tage rückwirkend erlaubt.`)
+      return
+    }
+    setSaving(true)
+    setError(null)
+    try {
+      const updated = await patchSystemSettings({
+        scheduler_time: schedulerTime,
+        scheduler_catch_up_days: catchUpDays,
+      })
+      setSettings(updated)
+      // Nach erfolgreichem Speichern Entwurf mit Serverzustand synchronisieren
+      setSchedulerTime(updated.scheduler_time)
+      setCatchUpDays(updated.scheduler_catch_up_days)
     } catch (e) {
       setError((e as Error).message)
     } finally {
@@ -146,7 +182,41 @@ export default function SettingsPage() {
         <p>
           Der Scheduler läuft täglich automatisch und erzeugt Soll-Buchungen für alle Abos,
           bei denen der User die Buchungshistorie aktiviert hat.
-          Hier kannst du ihn manuell für heute auslösen — z.&nbsp;B. nach einem Neustart oder zum Testen.
+          Uhrzeit und Catch-up-Fenster gelten nach Speichern ohne App-Neustart (täglicher Lauf).
+        </p>
+        <div className="settings-scheduler-form">
+          <label className="settings-field-label">
+            Tägliche Laufzeit (Server-Uhrzeit)
+            <input
+              type="time"
+              value={schedulerTime}
+              onChange={e => setSchedulerTime(e.target.value)}
+              disabled={saving}
+              className="settings-input-time"
+            />
+          </label>
+          <label className="settings-field-label">
+            Catch-up (max. {SCHEDULER_CATCH_UP_DAYS_MAX} Tage)
+            <input
+              type="number"
+              min={0}
+              max={SCHEDULER_CATCH_UP_DAYS_MAX}
+              value={catchUpDays}
+              onChange={e => setCatchUpDays(Number(e.target.value))}
+              disabled={saving}
+              className="settings-input-number"
+            />
+          </label>
+          <p className="settings-hint">
+            Verpasste Fälligkeiten werden höchstens so viele Tage in die Vergangenheit nachgetragen
+            (z.&nbsp;B. nach längerem Ausfall). Maximal {SCHEDULER_CATCH_UP_DAYS_MAX} Tage.
+          </p>
+          <button type="button" className="btn-primary" onClick={saveSchedulerSettings} disabled={saving}>
+            {saving ? 'Speichern…' : 'Scheduler-Einstellungen speichern'}
+          </button>
+        </div>
+        <p style={{ marginTop: '1rem' }}>
+          Manuell auslösen — z.&nbsp;B. nach einem Neustart oder zum Testen.
           Der Vorgang ist idempotent: bereits vorhandene Einträge werden nicht doppelt erzeugt.
         </p>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>

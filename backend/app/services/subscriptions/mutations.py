@@ -8,11 +8,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.exceptions import (
+    BillingEntryDeleteBlockedError,
     BillingHistoryChangeBlockedError,
     BillingHistoryEntryNotFoundError,
     DuplicateBillingHistoryEntryError,
     PriceEntryDeleteBlockedError,
     PriceHistoryEntryNotFoundError,
+    ShortBillingSegmentError,
 )
 from app.models.subscription import (
     Subscription,
@@ -32,6 +34,7 @@ from .access import _check_ownership, _get_subscription_or_raise
 from .billing import (
     applicable_billing_terms,
     applicable_price,
+    first_short_billing_segment_message,
     sync_subscription_billing_snapshot,
 )
 from .readers import get_subscription_detail
@@ -97,7 +100,8 @@ def delete_price_history_entry(
         # Nur Buchungen bis zum naechsten Preiseintrag — danach gilt ein anderer Preis
         stmt = stmt.where(SubscriptionScheduledPayment.due_date < next_valid_from)
 
-    affected = session.execute(stmt).scalar_one_or_none()
+    # Es können mehrere Buchungen im Fenster existieren → wir brauchen nur "existiert mindestens eine?"
+    affected = session.execute(stmt).scalars().first()
     if affected is not None:
         raise PriceEntryDeleteBlockedError(
             "Dieser Preiseintrag kann nicht gelöscht werden, da bereits Buchungen "
@@ -161,9 +165,16 @@ def delete_billing_history_entry(
 
     # Letzter Eintrag? Dann darf er nicht geloescht werden.
     if len(all_entries) <= 1:
-        raise PriceEntryDeleteBlockedError(
+        raise BillingEntryDeleteBlockedError(
             "Der einzige Abrechnungseintrag kann nicht gelöscht werden — "
             "ein Abo braucht mindestens einen Eintrag."
+        )
+
+    # Der initiale Eintrag (Abo-Start) darf nie gelöscht werden.
+    # Warum? Sonst gäbe es keine gültigen Billing-Terms ab started_on und die Zeitleiste wäre "löchrig".
+    if entry.valid_from == sub.started_on:
+        raise BillingEntryDeleteBlockedError(
+            "Der initiale Abrechnungseintrag (Abo-Start) kann nicht gelöscht werden."
         )
 
     # Zeitfenster bestimmen, in dem dieser Eintrag die gueltigen Konditionen beschrieb.
@@ -179,16 +190,24 @@ def delete_billing_history_entry(
     if next_valid_from is not None:
         stmt = stmt.where(SubscriptionScheduledPayment.due_date < next_valid_from)
 
-    affected = session.execute(stmt).scalar_one_or_none()
+    # Es können mehrere Buchungen im Fenster existieren → wir brauchen nur "existiert mindestens eine?"
+    affected = session.execute(stmt).scalars().first()
     if affected is not None:
-        raise PriceEntryDeleteBlockedError(
+        raise BillingEntryDeleteBlockedError(
             "Dieser Abrechnungseintrag kann nicht gelöscht werden, da bereits Buchungen "
             "für den betroffenen Zeitraum existieren."
         )
 
     remaining = [e for e in all_entries if e.id != entry.id]
+    # Sicherheitsnetz: remaining muss die Zeitleiste ab started_on weiterhin abdecken.
+    earliest_remaining = min(e.valid_from for e in remaining)
+    if earliest_remaining > sub.started_on:
+        raise BillingEntryDeleteBlockedError(
+            "Dieser Abrechnungseintrag kann nicht gelöscht werden, weil danach "
+            "kein Abrechnungseintrag ab dem Startdatum mehr existieren würde."
+        )
     if sub.started_on <= date.today() and applicable_billing_terms(date.today(), remaining) is None:
-        raise PriceEntryDeleteBlockedError(
+        raise BillingEntryDeleteBlockedError(
             "Dieser Abrechnungseintrag kann nicht geloescht werden, weil danach "
             "kein aktuell gueltiger Abrechnungseintrag mehr existieren wuerde."
         )
@@ -369,6 +388,12 @@ def interval_change(
       → Die Fehlermeldung nennt die Anzahl der betroffenen Buchungen.
     - acknowledge_existing_payments=True:
       → Speichert trotzdem — bestehende Buchungen bleiben unveraendert (bewusste User-Entscheidung).
+
+    409-Block-Flow (kurze Abrechnungsphase):
+    - Nach Duplikat-Check, vor Buchungs-Check: gemergte Historie (inkl. neuem Eintrag) wird
+      auf Segmente geprueft, die kuerzer als eine volle Periode sind.
+    - acknowledge_short_segment=False (default): 409 mit Hinweis (Marker „Kurze Abrechnungsphase“).
+    - acknowledge_short_segment=True: Speichern trotzdem.
     """
     sub = _get_subscription_or_raise(session, subscription_id)
     _check_ownership(sub, user_id)
@@ -385,6 +410,21 @@ def interval_change(
     # Duplikat-Check: existiert bereits ein Eintrag fuer dieses Datum?
     if any(e.valid_from == payload.valid_from for e in billing_hist):
         raise DuplicateBillingHistoryEntryError(payload.valid_from.isoformat())
+
+    # Neuer Eintrag nur im Speicher — fuer Plausibilitaetspruefung noch nicht in der DB.
+    new_entry = SubscriptionBillingHistory(
+        subscription_id=sub.id,
+        amount=payload.amount,
+        interval=payload.interval,
+        valid_from=payload.valid_from,
+        anchor_on=payload.valid_from,
+    )
+
+    # Kurze Abrechnungsphase: z.B. jährlich ab 01.08., nächster Historien-Eintrag schon 01.10.
+    merged_for_check = sorted(billing_hist + [new_entry], key=lambda e: e.valid_from)
+    short_msg = first_short_billing_segment_message(merged_for_check)
+    if short_msg and not payload.acknowledge_short_segment:
+        raise ShortBillingSegmentError(short_msg)
 
     # 409-Block: rueckwirkende Aenderungen mit vorhandenen Buchungen erfordern explizite Bestaetigung.
     # Ohne Bestaetigung wird geblockt — der User soll die Konsequenzen bewusst akzeptieren.
@@ -405,13 +445,6 @@ def interval_change(
             )
 
     # Intervallwechsel: anchor_on = valid_from — neuer Rhythmus startet genau hier.
-    new_entry = SubscriptionBillingHistory(
-        subscription_id=sub.id,
-        amount=payload.amount,
-        interval=payload.interval,
-        valid_from=payload.valid_from,
-        anchor_on=payload.valid_from,
-    )
     session.add(new_entry)
 
     # Snapshot synchronisieren: sub.amount und sub.interval auf heute gueltige Terms setzen.

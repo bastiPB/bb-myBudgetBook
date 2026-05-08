@@ -131,6 +131,19 @@ class PriceEntryDeleteBlockedError(AppError):
         super().__init__(reason, status_code=409)
 
 
+class BillingEntryDeleteBlockedError(AppError):
+    """
+    Wird geworfen, wenn ein Billing-History-Eintrag nicht gelöscht werden darf.
+
+    Gründe: letzter verbleibender Eintrag, initialer Start-Eintrag, oder es existieren
+    bereits Buchungen für den Zeitraum in dem dieser Eintrag galt.
+    HTTP 409 Conflict = Aktion aufgrund des aktuellen Zustands nicht erlaubt.
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason, status_code=409)
+
+
 # --- v0.2.4: Billing History ---
 
 
@@ -176,6 +189,18 @@ class BillingHistoryChangeBlockedError(AppError):
 
     def __init__(self, reason: str) -> None:
         super().__init__(reason, status_code=409)
+
+
+class ShortBillingSegmentError(AppError):
+    """
+    Wird geworfen, wenn die Billing-Historie nach einem Intervallwechsel ein Segment
+    enthält, das kürzer als eine volle Abrechnungsperiode wäre (typischer Eingabefehler).
+
+    HTTP 409 Conflict = Speichern nur mit acknowledge_short_segment=true.
+    """
+
+    def __init__(self, detail: str) -> None:
+        super().__init__(detail, status_code=409)
 
 
 def register_exception_handlers(app: FastAPI) -> None:

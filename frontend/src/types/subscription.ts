@@ -141,9 +141,11 @@ export interface BillingHistoryEntry {
 // Intervallwechsel-Anfrage (v0.2.4): Betrag + Intervall + Datum der ersten neuen Fälligkeit.
 // valid_from wird zum neuen Anker — die Perioden starten ab hier neu.
 // acknowledge_existing_payments: true erforderlich wenn ab valid_from bereits Buchungen existieren.
+// acknowledge_short_segment: true wenn die Abrechnungsphase kürzer als eine volle Periode wäre (409-Flow).
 export interface IntervalChangeRequest {
   amount: number
   interval: BillingInterval
   valid_from: string     // ISO-Datum "YYYY-MM-DD"
   acknowledge_existing_payments?: boolean
+  acknowledge_short_segment?: boolean
 }
