@@ -1,0 +1,206 @@
+/* Sparfach-Dashboard — Farben wie AppLayout / Subscriptions */
+
+.sb-page {
+  max-width: 1100px;
+}
+
+.sb-page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.sb-title {
+  margin: 0;
+}
+
+.sb-count {
+  font-size: 14px;
+  color: var(--color-text-muted);
+  margin: 0 0 20px;
+}
+
+.sb-load-error {
+  color: #c0392b;
+}
+
+.sb-empty {
+  color: var(--color-text-muted);
+  margin-top: 24px;
+}
+
+/* Outline-Button (wie SubscriptionsPage — AppLayout hat nur btn-primary) */
+.btn-outline {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 16px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 14px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.btn-outline:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  background: var(--color-accent-light);
+}
+
+.sb-create-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: 20px 22px;
+  margin-bottom: 28px;
+}
+
+.sb-create-title {
+  margin: 0 0 16px;
+  font-size: 17px;
+}
+
+.sb-create-form .btn-primary {
+  margin-top: 8px;
+}
+
+.sb-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px 18px;
+}
+
+.sb-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.sb-input,
+.sb-select {
+  padding: 9px 11px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.sb-input:focus,
+.sb-select:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.sb-form-error {
+  color: #c0392b;
+  font-size: 14px;
+  margin: 12px 0 0;
+}
+
+.sb-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 18px;
+}
+
+.sb-card {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: 18px 18px 14px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.sb-card:hover {
+  border-color: var(--color-accent);
+  box-shadow: 0 2px 10px rgba(74, 111, 165, 0.12);
+}
+
+.sb-card-head {
+  font-size: 15px;
+  margin-bottom: 10px;
+  line-height: 1.35;
+}
+
+.sb-card-name {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.sb-card-location {
+  color: var(--color-text-muted);
+  font-weight: 400;
+}
+
+.sb-card-row {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  margin-bottom: 10px;
+}
+
+.sb-progress-wrap {
+  margin-bottom: 10px;
+}
+
+.sb-progress-track {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--color-border);
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+
+.sb-progress-fill {
+  height: 100%;
+  background: var(--color-accent);
+  border-radius: 4px;
+  transition: width 0.2s ease;
+}
+
+.sb-progress-label {
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.sb-card-meta {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  margin-bottom: 12px;
+}
+
+.sb-card-footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.sb-status-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.sb-status-active {
+  background: var(--color-accent-light);
+  color: var(--color-accent);
+}
+
+.sb-status-closed {
+  background: var(--color-footer-bg);
+  color: var(--color-text-muted);
+}
