@@ -5,6 +5,49 @@ Format based on Keep a Changelog.
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-05-09
+
+### Added
+
+**Sparfach (Savings Box)** bildet das klassische Kneipenbuch-System digital ab: Ein externer Ort verwahrt das Geld, die App trackt Einzahlungen, Termine und den Abschluss.
+
+**Backend:** SQLAlchemy-Modelle (`SavingsBox`, `SavingsTerm`, `SavingsBooking`), Pydantic-Schemas, Service-Paket `app/services/savings/` (Terms, Buchungen, Lifecycle, Lesen ohne N+1), domain-spezifische Fehlerklassen und Router `app/routers/savings.py`.
+
+**API-Endpunkte**
+- `POST /savings/boxes`
+- `GET /savings/boxes`
+- `GET /savings/boxes/{id}`
+- `PATCH /savings/boxes/{id}`
+- `POST /savings/boxes/{id}/close`
+- `POST /savings/boxes/{id}/reopen`
+- `GET /savings/boxes/{id}/terms`
+- `POST /savings/boxes/{id}/terms/refresh`
+- `POST /savings/boxes/{id}/bookings`
+- `GET /savings/boxes/{id}/bookings`
+- `PATCH /savings/boxes/{id}/bookings/{id}`
+- `DELETE /savings/boxes/{id}/bookings/{id}`
+
+**Features**
+- Sparfach mit Mindestbetrag pro Term, optionaler Strafgebühr, Gesamtziel und persönlichem Termziel
+- Automatische Term-Generierung von `start_date` bis `end_date` (Intervall: wöchentlich, 14-tägig, monatlich)
+- Auto-Penalty-Buchung bei verpassten Terminen, wenn `penalty_amount` gesetzt ist (idempotent)
+- Mehrere Einzahlungen pro Term möglich — jede Einzahlung muss mindestens dem Term-`expected_amount` entsprechen
+- Abschluss mit Snapshot: `closing_expected_amount` = Summe Einzahlungen − Summe Strafen
+- Wieder öffnen setzt alle Abschlussfelder zurück
+- Geschlossenes Sparfach blockiert Schreiboperationen (HTTP 409)
+
+**Datenbank:** neue Tabellen `savings_boxes`, `savings_terms`, `savings_bookings`; neue Enums `savingsinterval`, `savingsboxstatus`, `savingstermstatus`, `savingsbookingtype`.
+
+**Frontend:** Typen und API-Client (`frontend/src/types/savingsBox.ts`, `frontend/src/api/savingsBox.ts`), Dashboard `/savings-box` mit Kacheln (Fortschritt, Status, nächster Termin), Detailseite `/savings-box/:id` mit Tabs Übersicht / Buchungen / Einstellungen, Termine gruppiert nach Status, Zwei-Schritt-Bestätigung für Abschluss und Wiedereröffnung.
+
+### Tests
+
+- `test_savings_box_v026.py`: Term-Generierung, Kennzahlen (`compute_box_summary`), `update_term_statuses` inkl. Auto-Penalty und Idempotenz, Buchungsregeln (Mindestbetrag, Penalty-Löschen, Deposit löschen), Zugriff auf geschlossene Box; Router-Smoke über eine Mini-FastAPI-App mit SQLite (`StaticPool`) ohne Lifespan.
+
+### Database Migrations
+
+- `o5p6q7r8` — v0.2.6: Sparfach — PostgreSQL-Enums und Tabellen `savings_boxes`, `savings_terms`, `savings_bookings`.
+
 ## [0.2.5] - 2026-05-05
 
 ### Documentation

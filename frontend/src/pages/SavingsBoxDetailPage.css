@@ -1,0 +1,435 @@
+/* SavingsBoxDetailPage.css — Detailseite Sparfach (Tabs, Termine, Buchungen, Settings) */
+
+.sb-detail-page {
+  max-width: 920px;
+}
+
+.sb-detail-back {
+  margin: 0 0 16px;
+}
+
+.sb-detail-back a {
+  color: var(--color-text-muted);
+  text-decoration: none;
+  font-size: 14px;
+}
+
+.sb-detail-back a:hover {
+  color: var(--color-accent);
+}
+
+.sb-detail-header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: space-between;
+}
+
+.sb-detail-title {
+  margin-bottom: 10px;
+}
+
+.sb-detail-status {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.sb-detail-status-active {
+  background: var(--color-accent-light);
+  color: var(--color-accent);
+  border: 1px solid var(--color-border);
+}
+
+.sb-detail-status-closed {
+  background: var(--color-footer-bg);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+}
+
+.sb-tabs {
+  display: flex;
+  gap: 8px;
+  margin: 10px 0 18px;
+  flex-wrap: wrap;
+}
+
+.sb-tab {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  border-radius: 10px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  font-family: inherit;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.sb-tab:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  background: var(--color-accent-light);
+}
+
+.sb-tab.is-active {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  background: var(--color-accent-light);
+}
+
+.sb-detail-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: 18px 20px;
+  margin-bottom: 16px;
+}
+
+.sb-detail-section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0 0 14px;
+}
+
+.sb-detail-summary-line {
+  margin: 0;
+  font-size: 14px;
+  color: var(--color-text);
+}
+
+.sb-detail-hint {
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.sb-detail-progress-track {
+  height: 10px;
+  border-radius: 6px;
+  background: var(--color-border);
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.sb-detail-progress-fill {
+  height: 100%;
+  background: var(--color-accent);
+  border-radius: 6px;
+  transition: width 0.2s ease;
+}
+
+.sb-detail-progress-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.sb-detail-progress-pct {
+  color: var(--color-text-muted);
+}
+
+/* ── Termine ── */
+.sb-accordion-head {
+  width: 100%;
+  text-align: left;
+  background: var(--color-sidebar);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  margin: 12px 0 8px;
+}
+
+.sb-accordion-head.is-open {
+  border-color: var(--color-accent);
+}
+
+.sb-accordion-caret {
+  float: right;
+  opacity: 0.7;
+}
+
+.sb-accordion-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sb-term-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: 12px 12px;
+}
+
+.sb-term-left {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sb-term-date {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--color-text);
+}
+
+.sb-term-sub {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.sb-term-muted {
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.sb-term-pill {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid var(--color-border);
+}
+
+.sb-term-open {
+  background: var(--color-accent-light);
+  color: var(--color-accent);
+}
+
+.sb-term-missed {
+  background: #fdf0ee;
+  color: #b94040;
+  border-color: #f5c6c0;
+}
+
+[data-theme="dark"] .sb-term-missed {
+  background: #2a1a1a;
+  color: #e89090;
+  border-color: #5c2828;
+}
+
+.sb-term-fulfilled {
+  background: #eafaf1;
+  color: #1d8348;
+  border-color: #a9dfbf;
+}
+
+[data-theme="dark"] .sb-term-fulfilled {
+  background: #0d2e1a;
+  color: #52b788;
+  border-color: #1e5c32;
+}
+
+.sb-detail-empty {
+  color: var(--color-text-muted);
+  font-size: 13px;
+  margin: 0;
+  padding: 6px 4px;
+}
+
+/* ── Buchungen Tabelle ── */
+.sb-bookings-table-card {
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.sb-bookings-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.sb-bookings-table th {
+  padding: 11px 16px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-sidebar);
+}
+
+.sb-bookings-table td {
+  padding: 12px 16px;
+  font-size: 14px;
+  color: var(--color-text);
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: middle;
+}
+
+.sb-bookings-table tr:last-child td {
+  border-bottom: none;
+}
+
+.sb-bookings-empty {
+  color: var(--color-text-muted);
+  text-align: center;
+  padding: 20px 0;
+}
+
+.sb-bookings-note {
+  color: var(--color-text-muted);
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sb-bookings-term {
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+/* ── Settings ── */
+.sb-settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px 16px;
+  margin-bottom: 14px;
+}
+
+.sb-settings-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.sb-settings-input {
+  padding: 9px 11px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.sb-settings-input:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-light);
+}
+
+.sb-settings-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ── Modals (Einzahlen, Edit Booking, Close) ── */
+.sb-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.sb-modal {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  padding: 24px 26px;
+  max-width: 520px;
+  width: 92%;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+}
+
+.sb-modal-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--color-text);
+  margin: 0 0 10px;
+}
+
+.sb-modal-body {
+  font-size: 14px;
+  color: var(--color-text-muted);
+  line-height: 1.6;
+  margin: 0 0 14px;
+}
+
+.sb-modal-warn {
+  color: #935116;
+}
+
+[data-theme="dark"] .sb-modal-warn {
+  color: #f4a261;
+}
+
+.sb-modal-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px 14px;
+}
+
+.sb-modal-span {
+  grid-column: 1 / -1;
+}
+
+.sb-modal-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.sb-modal-input {
+  padding: 9px 11px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.sb-modal-input:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-light);
+}
+
+.sb-modal-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 520px) {
+  .sb-modal-grid {
+    grid-template-columns: 1fr;
+  }
+}
+

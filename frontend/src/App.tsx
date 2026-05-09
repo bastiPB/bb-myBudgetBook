@@ -17,6 +17,8 @@ import PlaceholderPage from './pages/PlaceholderPage'
 import ProfileSettingsPage from './pages/ProfileSettingsPage'
 import RegisterPage from './pages/RegisterPage'
 import SettingsPage from './pages/SettingsPage'
+import SavingsBoxDetailPage from './pages/SavingsBoxDetailPage'
+import SavingsBoxPage from './pages/SavingsBoxPage'
 import SubscriptionDetailPage from './pages/SubscriptionDetailPage'
 import SubscriptionsPage from './pages/SubscriptionsPage'
 
@@ -64,6 +66,9 @@ function App() {
       {/* Abo-Detailseite — statische Route, damit :id nicht durch den Modul-Router läuft */}
       <Route path="/subscriptions/:id" element={<Layout><SubscriptionDetailPage /></Layout>} />
 
+      {/* Sparfach: Detail unter statischer Route (wie Abos) */}
+      <Route path="/savings-box/:id" element={<Layout><SavingsBoxDetailPage /></Layout>} />
+
       {/* Dynamische Modul-Routen — nur aktive Module sind erreichbar (ADR 0008).
           Inaktive Module haben keine Route → URL-Aufruf landet beim Fallback (Login). */}
       {activeModules.map(module => (
@@ -75,7 +80,9 @@ function App() {
               {/* Abo-Manager hat eine echte Seite — alle anderen sind Platzhalter (v0.2.0) */}
               {module.key === 'subscriptions'
                 ? <SubscriptionsPage />
-                : <PlaceholderPage moduleName={module.label} />
+                : module.key === 'savings_box'
+                  ? <SavingsBoxPage />
+                  : <PlaceholderPage moduleName={module.label} />
               }
             </Layout>
           }

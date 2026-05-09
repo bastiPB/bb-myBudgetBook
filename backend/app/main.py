@@ -9,7 +9,7 @@ from app.bootstrap import bootstrap_admin
 from app.config import get_settings
 from app.database import SessionLocal
 from app.exceptions import register_exception_handlers
-from app.routers import admin, auth, profile, settings, subscriptions
+from app.routers import admin, auth, profile, savings, settings, subscriptions
 from app.scheduler_control import register_payment_scheduler_job
 from app.services.scheduler_service import generate_scheduled_payments
 
@@ -94,6 +94,7 @@ def create_app() -> FastAPI:
     app.include_router(settings.router)
     app.include_router(profile.router)
     app.include_router(subscriptions.router)
+    app.include_router(savings.router)
 
     # Upload-Verzeichnis anlegen und als statisches Verzeichnis einbinden (ADR 0010).
     # Schlägt das Anlegen fehl (z. B. fehlende Rechte in CI-Umgebungen), wird der

@@ -71,6 +71,61 @@ class SubscriptionNotFoundError(AppError):
         super().__init__("Abo nicht gefunden.", status_code=404)
 
 
+class SavingsBoxNotFoundError(AppError):
+    """Wird geworfen, wenn ein Sparfach anhand seiner ID nicht gefunden wird."""
+
+    def __init__(self) -> None:
+        super().__init__("Sparfach nicht gefunden.", status_code=404)
+
+
+class SavingsBoxClosedError(AppError):
+    """
+    Wird geworfen bei Schreibzugriff auf ein bereits abgeschlossenes Sparfach.
+
+    HTTP 409 Conflict — Daten dürfen nach Abschluss nicht mehr geändert werden.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Dieses Sparfach ist abgeschlossen und kann nicht mehr geändert werden.",
+            status_code=409,
+        )
+
+
+class SavingsBoxNotClosedError(AppError):
+    """Wird beim Reopen geworfen, wenn das Sparfach noch nicht abgeschlossen ist."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Das Sparfach ist noch nicht abgeschlossen und kann nicht wieder geöffnet werden.",
+            status_code=409,
+        )
+
+
+class SavingsBookingValidationError(AppError):
+    """Ungültige Buchungsdaten (Term fehlt, Betrag unter Mindestbetrag, falscher Term)."""
+
+    def __init__(self, detail: str) -> None:
+        super().__init__(detail, status_code=422)
+
+
+class SavingsBookingNotFoundError(AppError):
+    """Buchung zur angegebenen ID existiert nicht oder gehört nicht zur Box."""
+
+    def __init__(self) -> None:
+        super().__init__("Buchung nicht gefunden.", status_code=404)
+
+
+class SavingsPenaltyDeleteBlockedError(AppError):
+    """Strafe löschen nicht erlaubt, solange keine Einzahlung zum Term existiert."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Die Strafgebühr kann nicht gelöscht werden, solange keine Einzahlung für diesen Term verbucht ist.",
+            status_code=409,
+        )
+
+
 class InvalidFileError(AppError):
     """
     Wird geworfen wenn eine hochgeladene Datei die Anforderungen nicht erfüllt.
