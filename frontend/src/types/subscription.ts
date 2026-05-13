@@ -1,4 +1,5 @@
 // Spiegelt die Backend-Schemas (schemas/subscription.py) als TypeScript-Typen.
+import type { TagRead } from './tag'
 
 // Die fünf möglichen Abrechnungsintervalle — exakt wie im Backend-Enum (v0.2.3: semiannual neu)
 export type BillingInterval = 'monthly' | 'quarterly' | 'semiannual' | 'yearly' | 'biennial'
@@ -45,6 +46,7 @@ export interface SubscriptionRead {
   started_on: string
   notes: string | null
   logo_url: string | null
+  tags: TagRead[]  // zugewiesene Tags — leer wenn keine vorhanden (v0.2.7)
   // suspended_at + access_until entfernt in v0.2.3 — stehen jetzt in PauseHistoryEntry
 }
 

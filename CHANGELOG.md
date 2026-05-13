@@ -5,6 +5,10 @@ Format based on Keep a Changelog.
 
 ## [Unreleased]
 
+## [0.2.7] - 2026-05-13
+
+
+
 ## [0.2.6] - 2026-05-09
 
 ### Added
