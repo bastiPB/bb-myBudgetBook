@@ -13,6 +13,10 @@ import { useNavigate, useParams } from 'react-router-dom'
 
 import ConfirmModal from '../components/ConfirmModal'
 import InfoModal from '../components/InfoModal'
+import TagManagementModal from '../components/TagManagementModal'
+import TagSelector from '../components/TagSelector'
+import { getTags, setSubscriptionTags } from '../api/tags'
+import type { TagRead } from '../types/tag'
 import {
   cancelSubscription,
   deleteBillingHistoryEntry,
@@ -144,6 +148,13 @@ export default function SubscriptionDetailPage() {
   // Info/Fehler-Modal — zeigt Fehlermeldungen der API als Overlay an
   const [infoModal, setInfoModal] = useState<{ title: string; body: string } | null>(null)
 
+  // Tags (v0.2.7)
+  const [allTags, setAllTags] = useState<TagRead[]>([])
+  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([])
+  const [showTagModal, setShowTagModal] = useState(false)
+  const [tagSaving, setTagSaving] = useState(false)
+  const [tagError, setTagError] = useState<string | null>(null)
+
   // Abo + Preishistorie + Abrechnungshistorie + Buchungshistorie beim ersten Rendern parallel laden
   useEffect(() => {
     if (!id) return
@@ -152,13 +163,17 @@ export default function SubscriptionDetailPage() {
       getPriceHistory(id),
       getScheduledPayments(id),
       getBillingHistory(id),
+      getTags(),
     ])
-      .then(([data, history, payments, billing]) => {
+      .then(([data, history, payments, billing, tags]) => {
         setSub(data)
         setNotesValue(data.notes ?? '')
         setPriceHistory(history)
         setScheduledPayments(payments)
         setBillingHistory(billing)
+        setAllTags(tags)
+        // Aktuelle Tag-Auswahl aus den geladenen Abo-Daten initialisieren
+        setSelectedTagIds(data.tags.map(t => t.id))
       })
       .catch(err => setLoadError(err instanceof Error ? err.message : 'Ladefehler'))
   }, [id])
@@ -174,6 +189,35 @@ export default function SubscriptionDetailPage() {
     setSub(data)
     setPriceHistory(history)
     setBillingHistory(billing)
+  }
+
+  // --- Tags speichern ---
+  async function handleSaveTags() {
+    if (!sub) return
+    setTagSaving(true)
+    setTagError(null)
+    try {
+      await setSubscriptionTags(sub.id, { tag_ids: selectedTagIds })
+      // sub.tags lokal aktualisieren ohne vollständigen Reload
+      setSub(prev => prev ? { ...prev, tags: allTags.filter(t => selectedTagIds.includes(t.id)) } : prev)
+    } catch (err) {
+      setTagError(err instanceof Error ? err.message : 'Fehler beim Speichern.')
+    } finally {
+      setTagSaving(false)
+    }
+  }
+
+  // --- Tag-Liste nach Änderungen im TagManagementModal neu laden ---
+  async function handleTagsChanged() {
+    try {
+      const tags = await getTags()
+      setAllTags(tags)
+      // Ungültige IDs entfernen (z. B. wenn ein Tag gelöscht wurde)
+      const validIds = new Set(tags.map(t => t.id))
+      setSelectedTagIds(prev => prev.filter(id => validIds.has(id)))
+    } catch {
+      // Tag-Liste konnte nicht neu geladen werden — kein kritischer Fehler
+    }
   }
 
   // --- Abo pausieren ---
@@ -410,6 +454,14 @@ export default function SubscriptionDetailPage() {
           confirmText={modal.confirmText}
           onConfirm={modal.onConfirm}
           onCancel={() => setModal(null)}
+        />
+      )}
+
+      {/* TagManagementModal — CRUD für Tags */}
+      {showTagModal && (
+        <TagManagementModal
+          onClose={() => setShowTagModal(false)}
+          onTagsChanged={handleTagsChanged}
         />
       )}
 
@@ -818,6 +870,23 @@ export default function SubscriptionDetailPage() {
           </table>
         </div>
       )}
+
+      {/* Tags (v0.2.7) */}
+      <div className="detail-card">
+        <h2 className="detail-section-title">Tags</h2>
+        <TagSelector
+          allTags={allTags}
+          selectedIds={selectedTagIds}
+          onChange={setSelectedTagIds}
+          onManageTags={() => setShowTagModal(true)}
+        />
+        {tagError && <p className="detail-notes-error">{tagError}</p>}
+        <div className="detail-notes-actions" style={{ marginTop: '10px' }}>
+          <button className="btn-primary-sm" onClick={handleSaveTags} disabled={tagSaving}>
+            {tagSaving ? '…' : 'Tags speichern'}
+          </button>
+        </div>
+      </div>
 
       {/* Aktionen */}
       <div className="detail-actions">

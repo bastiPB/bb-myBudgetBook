@@ -13,6 +13,7 @@ from typing import Optional
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from app.models.subscription import BillingInterval, PaymentStatus, SubscriptionStatus
+from app.schemas.subscription_tag import TagRead
 
 
 def _normalize_amount(v: object) -> object:
@@ -115,6 +116,8 @@ class SubscriptionRead(BaseModel):
     started_on: date
     notes: str | None
     logo_url: str | None
+    # Tags: leer wenn keine Tags zugewiesen — wird im Service aus subscription_tag_assignments geladen
+    tags: list[TagRead] = []
 
 
 class SubscriptionDetail(SubscriptionRead):

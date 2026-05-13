@@ -71,6 +71,21 @@ class SubscriptionNotFoundError(AppError):
         super().__init__("Abo nicht gefunden.", status_code=404)
 
 
+class TagNotFoundError(AppError):
+    """Wird geworfen, wenn ein Tag anhand seiner ID nicht gefunden wird."""
+
+    def __init__(self) -> None:
+        super().__init__("Tag nicht gefunden.", status_code=404)
+
+
+class TagNameAlreadyExistsError(AppError):
+    """Wird geworfen, wenn ein Tag-Name für diesen User bereits existiert."""
+
+    def __init__(self) -> None:
+        # HTTP 409 Conflict = die Ressource existiert bereits
+        super().__init__("Ein Tag mit diesem Namen existiert bereits.", status_code=409)
+
+
 class SavingsBoxNotFoundError(AppError):
     """Wird geworfen, wenn ein Sparfach anhand seiner ID nicht gefunden wird."""
 
