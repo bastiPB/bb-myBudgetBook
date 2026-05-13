@@ -17,8 +17,10 @@ from app.models.subscription import (
     SubscriptionStatus,
 )
 from app.schemas.subscription import SubscriptionDetail, SubscriptionRead
+from app.schemas.subscription_tag import TagRead
 
 from .access import _check_ownership, _get_subscription_or_raise
+from .tags import bulk_load_tags, get_tags_for_subscription
 from .billing import (
     applicable_billing_terms,
     compute_dieses_kalenderjahr,
@@ -57,6 +59,13 @@ def subscription_to_read(
     else:
         # Fallback: snapshot-Felder nutzen (korrekt solange kein Intervallwechsel stattfand)
         read.next_due_date = compute_next_due_date(sub.started_on, _MONTHS_PER_PERIOD[sub.interval])
+
+    # Tags: entweder von sub._computed_tags (bulk-Vorladeoptimierung aus list_subscriptions)
+    # oder leer — leer ist der sichere Default wenn Tags nicht vorgeladen wurden.
+    cached_tags = getattr(sub, "_computed_tags", None)
+    if cached_tags is not None:
+        read.tags = [TagRead.model_validate(t) for t in cached_tags]
+
     return read
 
 
@@ -82,12 +91,17 @@ def list_subscriptions(session: Session, user_id: uuid.UUID) -> list[Subscriptio
     for e in all_bh:
         bh_by_sub[e.subscription_id].append(e)
 
+    # Tags fuer alle Abos auf einmal laden (Bulk-Load — vermeidet N+1)
+    tags_by_sub = bulk_load_tags(session=session, subscription_ids=all_ids)
+
     today = date.today()
     # Nach berechnetem Faelligkeitsdatum sortieren — naechste Faelligkeit zuerst
     for sub in subs:
         # Merken, damit die Router-Response nicht wieder auf started_on + Snapshot-Intervall
         # zurueckfaellt und Intervallwechsel in Listenansichten verliert.
         sub._computed_next_due_date = compute_next_due_date_from_history(bh_by_sub[sub.id], today)
+        # Tags vormerken — subscription_to_read() liest dieses Attribut aus
+        sub._computed_tags = tags_by_sub.get(sub.id, [])
 
     return sorted(
         subs,
@@ -196,6 +210,9 @@ def get_subscription_detail(
     dieses_kj = compute_dieses_kalenderjahr(billing_hist, pause_hist)
     next_due = compute_next_due_date_from_history(billing_hist, today)
 
+    # Tags fuer dieses einzelne Abo laden
+    sub_tags = get_tags_for_subscription(session=session, subscription_id=subscription_id)
+
     # Erst Basisfelder aus dem ORM lesen, dann berechnete Pflichtfelder ergaenzen
     # und als komplettes Payload gegen SubscriptionDetail validieren.
     detail_payload = SubscriptionRead.model_validate(sub, from_attributes=True).model_dump()
@@ -204,6 +221,8 @@ def get_subscription_detail(
     detail_payload["tatsaechlich"] = tatsaechlich
     detail_payload["intervalle"] = intervalle
     detail_payload["dieses_kalenderjahr"] = dieses_kj
+    # Tags als TagRead-Objekte einfuegen — Pydantic validiert sie beim model_validate unten
+    detail_payload["tags"] = [TagRead.model_validate(t) for t in sub_tags]
 
     return SubscriptionDetail.model_validate(detail_payload)
 

@@ -35,6 +35,15 @@ from .lifecycle import (
     suspend_subscription,
 )
 from .logos import upload_subscription_logo
+from .tags import (
+    bulk_load_tags,
+    create_tag,
+    delete_tag,
+    get_all_tags,
+    get_tags_for_subscription,
+    set_subscription_tags,
+    update_tag,
+)
 from .mutations import (
     create_subscription,
     delete_billing_history_entry,
@@ -93,4 +102,11 @@ __all__ = [
     "sync_subscription_billing_snapshot",
     "update_subscription",
     "upload_subscription_logo",
+    "bulk_load_tags",
+    "create_tag",
+    "delete_tag",
+    "get_all_tags",
+    "get_tags_for_subscription",
+    "set_subscription_tags",
+    "update_tag",
 ]

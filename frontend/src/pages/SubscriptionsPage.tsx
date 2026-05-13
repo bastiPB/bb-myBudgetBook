@@ -9,6 +9,9 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import ConfirmModal from '../components/ConfirmModal'
+import TagBadge from '../components/TagBadge'
+import TagManagementModal from '../components/TagManagementModal'
+import TagSelector from '../components/TagSelector'
 import {
   createSubscription,
   deleteSubscription,
@@ -18,7 +21,9 @@ import {
   suspendSubscription,
   updateSubscription,
 } from '../api/subscriptions'
+import { getTags, setSubscriptionTags } from '../api/tags'
 import type { BillingInterval, SubscriptionRead, SubscriptionStatus } from '../types/subscription'
+import type { TagRead } from '../types/tag'
 import {
   formatAmount,
   formatDate,
@@ -86,6 +91,15 @@ export default function SubscriptionsPage() {
   // Bestätigungs-Modal: null = geschlossen
   const [modal, setModal] = useState<ModalState | null>(null)
 
+  // Alle Tags des Users (für TagSelector im Erstell-Formular)
+  const [allTags, setAllTags] = useState<TagRead[]>([])
+  // Gewählte Tag-IDs im Erstell-Formular
+  const [createTagIds, setCreateTagIds] = useState<string[]>([])
+  // Aktive Tag-Filter auf der Übersichtsseite (UND-Verknüpfung)
+  const [activeFilterTagIds, setActiveFilterTagIds] = useState<string[]>([])
+  // Steuert ob das TagManagementModal offen ist
+  const [showTagModal, setShowTagModal] = useState(false)
+
   // Suche + Paginierung
   const [searchQuery, setSearchQuery] = useState('')
   const [pageSize, setPageSize] = useState(25)
@@ -96,12 +110,42 @@ export default function SubscriptionsPage() {
     getSubscriptions()
       .then(setSubscriptions)
       .catch(err => setLoadError(err.message))
+    // Tags parallel laden — kein kritischer Fehler wenn es schiefgeht
+    getTags()
+      .then(setAllTags)
+      .catch(() => {})
   }, [])
 
-  // --- Suche + Paginierung berechnen ---
-  const filtered = subscriptions.filter(s =>
-    s.name.toLowerCase().includes(searchQuery.toLowerCase())
-  )
+  // --- Tags nach Änderungen im TagManagementModal neu laden ---
+  async function handleTagsChanged() {
+    const tags = await getTags().catch(() => allTags)
+    setAllTags(tags)
+    // Falls gelöschte Tags in der Auswahl oder im Filter waren: bereinigen
+    const validIds = new Set(tags.map(t => t.id))
+    setCreateTagIds(prev => prev.filter(id => validIds.has(id)))
+    setActiveFilterTagIds(prev => prev.filter(id => validIds.has(id)))
+  }
+
+  // --- Tag-Filter umschalten (Klick auf Chip) ---
+  function toggleFilterTag(tagId: string) {
+    setActiveFilterTagIds(prev =>
+      prev.includes(tagId) ? prev.filter(id => id !== tagId) : [...prev, tagId]
+    )
+    // Seitenreset damit man immer auf Seite 1 startet
+    setCurrentPage(0)
+  }
+
+  // --- Suche + Tag-Filter + Paginierung berechnen ---
+  const filtered = subscriptions.filter(s => {
+    // Namenssuche (Groß-/Kleinschreibung ignorieren)
+    if (!s.name.toLowerCase().includes(searchQuery.toLowerCase())) return false
+    // Tag-Filter: Abo muss ALLE aktiven Filter-Tags besitzen (UND-Verknüpfung)
+    if (activeFilterTagIds.length > 0) {
+      const subTagIds = new Set(s.tags.map(t => t.id))
+      if (!activeFilterTagIds.every(id => subTagIds.has(id))) return false
+    }
+    return true
+  })
   const totalPages = Math.ceil(filtered.length / pageSize)
   // safePage: verhindert leere Seite wenn Einträge wegfallen (z. B. nach Suche oder Löschen)
   const safePage = Math.min(currentPage, Math.max(totalPages - 1, 0))
@@ -130,15 +174,21 @@ export default function SubscriptionsPage() {
 
     setCreateLoading(true)
     try {
-      const neu = await createSubscription({
+      let neu = await createSubscription({
         name: createForm.name,
         amount: amountNum,
         interval: createForm.interval,
         // started_on nur mitschicken wenn der User ein Datum eingetragen hat
         started_on: createForm.started_on || undefined,
       })
+      // Falls Tags ausgewählt wurden: direkt nach dem Anlegen zuweisen
+      if (createTagIds.length > 0) {
+        const assignedTags = await setSubscriptionTags(neu.id, { tag_ids: createTagIds })
+        neu = { ...neu, tags: assignedTags }
+      }
       setSubscriptions(prev => [...prev, neu])
       setCreateForm(EMPTY_CREATE)
+      setCreateTagIds([])
       setShowCreate(false)
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : 'Fehler beim Anlegen.')
@@ -222,6 +272,14 @@ export default function SubscriptionsPage() {
   return (
     <div>
 
+      {/* TagManagementModal — CRUD für Tags, aufrufbar aus dem TagSelector heraus */}
+      {showTagModal && (
+        <TagManagementModal
+          onClose={() => setShowTagModal(false)}
+          onTagsChanged={handleTagsChanged}
+        />
+      )}
+
       {/* Bestätigungs-Modal — nur sichtbar wenn modal-State gesetzt */}
       {modal && (
         <ConfirmModal
@@ -239,7 +297,7 @@ export default function SubscriptionsPage() {
         <h1 className="page-title" style={{ margin: 0 }}>Meine Abos</h1>
         <button
           className={showCreate ? 'btn-outline' : 'btn-primary'}
-          onClick={() => { setShowCreate(v => !v); setCreateForm(EMPTY_CREATE); setCreateError(null) }}
+          onClick={() => { setShowCreate(v => !v); setCreateForm(EMPTY_CREATE); setCreateError(null); setCreateTagIds([]) }}
         >
           {showCreate ? 'Abbrechen' : '+ Neues Abo'}
         </button>
@@ -247,7 +305,7 @@ export default function SubscriptionsPage() {
 
       {/* Anzahl-Info */}
       <p className="subs-count">
-        {searchQuery
+        {(searchQuery || activeFilterTagIds.length > 0)
           ? `${filtered.length} von ${subscriptions.length} Abo${subscriptions.length !== 1 ? 's' : ''}`
           : `${subscriptions.length} Abo${subscriptions.length !== 1 ? 's' : ''} eingetragen`
         }
@@ -294,6 +352,14 @@ export default function SubscriptionsPage() {
               </select>
             </div>
 
+            {/* Tags optional beim Erstellen zuweisen */}
+            <TagSelector
+              allTags={allTags}
+              selectedIds={createTagIds}
+              onChange={setCreateTagIds}
+              onManageTags={() => setShowTagModal(true)}
+            />
+
             {createError && <p className="subs-form-error">{createError}</p>}
 
             <button type="submit" className="btn-primary" disabled={createLoading}>
@@ -325,11 +391,45 @@ export default function SubscriptionsPage() {
         </div>
       )}
 
+      {/* Tag-Filter-Leiste — nur wenn Tags vorhanden */}
+      {allTags.length > 0 && (
+        <div className="subs-filter-bar">
+          {allTags.map(tag => (
+            <button
+              key={tag.id}
+              type="button"
+              className={`subs-filter-chip${activeFilterTagIds.includes(tag.id) ? ' active' : ''}`}
+              onClick={() => toggleFilterTag(tag.id)}
+              style={activeFilterTagIds.includes(tag.id) ? { borderColor: tag.color, color: tag.color, background: `${tag.color}18` } : {}}
+            >
+              {/* Farbpunkt des Tags */}
+              <span className="subs-filter-chip-dot" style={{ background: tag.color }} />
+              {tag.name}
+            </button>
+          ))}
+          {/* Zurücksetzen-Button — nur wenn ein Filter aktiv ist */}
+          {activeFilterTagIds.length > 0 && (
+            <button
+              type="button"
+              className="subs-filter-reset"
+              onClick={() => { setActiveFilterTagIds([]); setCurrentPage(0) }}
+            >
+              Filter zurücksetzen
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Abo-Liste */}
       {subscriptions.length === 0 ? (
         <p className="subs-empty">Noch keine Abos eingetragen.</p>
       ) : filtered.length === 0 ? (
-        <p className="subs-empty">Keine Abos gefunden für "{searchQuery}".</p>
+        <p className="subs-empty">
+          {activeFilterTagIds.length > 0
+            ? 'Kein Abo hat alle gewählten Tags.'
+            : `Keine Abos gefunden für "${searchQuery}".`
+          }
+        </p>
       ) : (
         <>
           <div className="subs-table-card">
@@ -380,7 +480,14 @@ export default function SubscriptionsPage() {
                     // Normale Zeile
                     <tr key={sub.id}>
                       <td><LogoThumb logoUrl={sub.logo_url} name={sub.name} /></td>
-                      <td><Link className="subs-name-link" to={`/subscriptions/${sub.id}`}>{sub.name}</Link></td>
+                      <td>
+                        <Link className="subs-name-link" to={`/subscriptions/${sub.id}`}>{sub.name}</Link>
+                        {sub.tags.length > 0 && (
+                          <div className="subs-tags-row">
+                            {sub.tags.map(tag => <TagBadge key={tag.id} tag={tag} />)}
+                          </div>
+                        )}
+                      </td>
                       <td><StatusBadge status={sub.status} /></td>
                       <td>{formatAmount(sub.amount)}</td>
                       <td><span className="subs-interval">{INTERVAL_LABELS[sub.interval]}</span></td>

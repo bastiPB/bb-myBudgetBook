@@ -1,0 +1,50 @@
+/* TagBadge.css — kleines Farbpill-Element für Tags */
+
+.tag-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px 3px 6px;
+  border-radius: 20px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text);
+  white-space: nowrap;
+  line-height: 1.4;
+}
+
+/* Farbiger Kreis — Farbe wird per style-Attribut gesetzt */
+.tag-badge-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.tag-badge-name {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* × zum Entfernen (nur im TagSelector sichtbar) */
+.tag-badge-remove {
+  background: none;
+  border: none;
+  padding: 0 0 0 2px;
+  margin: 0;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-family: inherit;
+  display: flex;
+  align-items: center;
+  transition: color 0.15s;
+}
+
+.tag-badge-remove:hover {
+  color: var(--color-text);
+}

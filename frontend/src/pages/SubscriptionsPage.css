@@ -483,3 +483,74 @@
   font-size: 13px;
   color: var(--color-text-muted);
 }
+
+/* Tags unterhalb des Abo-Namens in der Tabelle (v0.2.7) */
+.subs-tags-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+/* ── Tag-Filter-Leiste (v0.2.7) ── */
+.subs-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+/* Klickbarer Tag-Chip für den Filter */
+.subs-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: inherit;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.subs-filter-chip:hover {
+  border-color: var(--color-text-muted);
+  color: var(--color-text);
+}
+
+/* Aktiver Filter-Chip — Farbe kommt per Inline-Style vom Tag */
+.subs-filter-chip.active {
+  font-weight: 600;
+}
+
+/* Kleiner Farbpunkt im Chip */
+.subs-filter-chip-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* "Filter zurücksetzen"-Button */
+.subs-filter-reset {
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: inherit;
+  border: 1px dashed var(--color-border);
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.subs-filter-reset:hover {
+  border-color: var(--color-text-muted);
+  color: var(--color-text);
+}
