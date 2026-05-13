@@ -5,6 +5,25 @@ Format based on Keep a Changelog.
 
 ## [Unreleased]
 
+## [0.2.71] - 2026-05-13
+
+### Fixed
+
+- **Datumseingabe-Format**: Alle `<input type="date">`-Felder zeigten das US-Format `MM/DD/YYYY`. Ursache war `lang="en"` in `frontend/index.html` — Browser richten die Datumsdarstellung danach. Ein-Zeilen-Fix: `lang="de"` setzt das gesamte Dokument auf deutsches Locale. Betroffen waren: Erstell-Formular (Abschlussdatum), Detailseite (Preisänderung, Intervallwechsel), Sparfach-Seiten (Start- und Enddatum). Angezeigte (nicht editierbare) Datumsstrings waren nicht betroffen — `formatDate()` gibt korrekt `DD.MM.YYYY` aus.
+
+## [0.2.7] - 2026-05-13
+
+### Added
+
+**Subscription Tags** — Abos können mit eigenen Tags versehen werden (z. B. „Streaming", „KI-Abos", „Server"). Tags sind user-spezifisch mit 12 vordefinierten Farben und in beliebiger Anzahl pro Abo zuweisenbar.
+
+- Neues CRUD-Modal zum Erstellen, Umbenennen und Löschen von Tags (mit Inline-Bestätigung)
+- Tag-Zuweisung auf der Detailseite via Multi-Select-Dropdown
+- Tag-Chips in der Abo-Übersicht unterhalb des Namens
+- Tag-Filter in der Übersicht: AND-Verknüpfung, farbige Chips, „Filter zurücksetzen"-Button
+- Backend: 2 neue Tabellen (`subscription_tags`, `subscription_tag_assignments`), 5 neue API-Endpunkte unter `/subscriptions/tags`, N+1-freies Bulk-Loading per `_computed_tags`-Pattern
+- Migration `p6q7r8s9`
+
 ## [0.2.6] - 2026-05-09
 
 ### Added
