@@ -32,6 +32,7 @@ class PatternDoc:
     title: str
     purpose: str
     rule: str
+    domain_keys: tuple[str, ...]
     anchors: tuple[Anchor, ...]
 
 
@@ -43,6 +44,7 @@ PATTERNS: tuple[PatternDoc, ...] = (
             "List views use bulk_load_tags plus _computed_tags to avoid N+1 queries. "
             "Detail views use get_tags_for_subscription for one subscription."
         ),
+        domain_keys=("subscriptions",),
         anchors=(
             Anchor("Tag router", "backend/app/routers/subscription_tags.py", ("APIRouter", "assign_tags_to_subscription")),
             Anchor("Tag service", "backend/app/services/subscriptions/tags.py", ("set_subscription_tags", "bulk_load_tags")),
@@ -59,6 +61,7 @@ PATTERNS: tuple[PatternDoc, ...] = (
             "Billing history is the source of truth for amount + interval + anchor. "
             "Snapshot fields are synchronized with sync_subscription_billing_snapshot."
         ),
+        domain_keys=("subscriptions",),
         anchors=(
             Anchor("Billing functions", "backend/app/services/subscriptions/billing.py", (
                 "compute_due_dates_for_billing_history",
@@ -89,6 +92,7 @@ PATTERNS: tuple[PatternDoc, ...] = (
             "Price-entry deletion is blocked when it removes the only price or affects scheduled payments "
             "inside the entry validity window."
         ),
+        domain_keys=("subscriptions",),
         anchors=(
             Anchor("Price deletion", "backend/app/services/subscriptions/mutations.py", (
                 "delete_price_history_entry",
@@ -114,6 +118,7 @@ PATTERNS: tuple[PatternDoc, ...] = (
             "active can be suspended, suspended can be resumed, canceled is final. "
             "Pause history marks suspended periods and final cancellation boundaries."
         ),
+        domain_keys=("subscriptions",),
         anchors=(
             Anchor("Lifecycle service", "backend/app/services/subscriptions/lifecycle.py", (
                 "suspend_subscription",
@@ -143,6 +148,7 @@ PATTERNS: tuple[PatternDoc, ...] = (
             "Scheduler due_date is the computed billing due date, not the run date. "
             "Catch-up uses scheduler_catch_up_days and idempotency is protected before insert."
         ),
+        domain_keys=("subscriptions",),
         anchors=(
             Anchor("Scheduler", "backend/app/services/scheduler_service.py", (
                 "generate_scheduled_payments",
@@ -162,12 +168,110 @@ PATTERNS: tuple[PatternDoc, ...] = (
             "Frontend routes are driven by activeModules and registry entries. "
             "Adding a module requires registry plus backend module key support."
         ),
+        domain_keys=("*",),
         anchors=(
             Anchor("Frontend registry", "frontend/src/modules/registry.ts", ("MODULE_REGISTRY", "route")),
             Anchor("App dynamic routes", "frontend/src/App.tsx", ("activeModules.map", "module.key")),
             Anchor("Module provider", "frontend/src/context/ModulesProvider.tsx", ("activeModules",)),
             Anchor("Backend profile service", "backend/app/services/profile.py", ("MODULE_KEYS",)),
             Anchor("Module config router", "backend/app/routers/profile.py", ("module-config",)),
+        ),
+    ),
+    PatternDoc(
+        title="Savings Box Terms",
+        purpose="Savings term generation, missed-term refresh, penalties, and summaries.",
+        rule=(
+            "Terms are generated from start_date to end_date. Detail/terms/bookings reads refresh overdue "
+            "open terms and create idempotent penalty bookings for missed terms."
+        ),
+        domain_keys=("savings_box",),
+        anchors=(
+            Anchor("Savings terms service", "backend/app/services/savings/terms.py", (
+                "generate_terms",
+                "update_term_statuses",
+                "compute_box_summary",
+            )),
+            Anchor("Savings readers", "backend/app/services/savings/readers.py", (
+                "get_box_detail",
+                "update_term_statuses",
+                "compute_box_summary",
+            )),
+            Anchor("Savings router", "backend/app/routers/savings.py", (
+                "/{box_id}/terms",
+                "/{box_id}/terms/refresh",
+                "/{box_id}/bookings",
+            )),
+            Anchor("Savings frontend API", "frontend/src/api/savingsBox.ts", (
+                "getBoxTerms",
+                "refreshTerms",
+                "getBoxBookings",
+            )),
+            Anchor("Savings detail UI", "frontend/src/pages/SavingsBoxDetailPage.tsx", (
+                "SavingsBoxDetail",
+                "booking_type",
+                "terms",
+            )),
+        ),
+    ),
+    PatternDoc(
+        title="Savings Box Bookings",
+        purpose="Deposit, penalty, and manual booking rules.",
+        rule=(
+            "Deposits require a term and must meet expected_amount. Penalty bookings require a term. "
+            "Manual bookings may exist without a term and do not count as deposited or penalty summary amounts."
+        ),
+        domain_keys=("savings_box",),
+        anchors=(
+            Anchor("Savings mutations", "backend/app/services/savings/mutations.py", (
+                "create_booking",
+                "_sync_term_and_penalty_after_deposit_change",
+                "SavingsPenaltyDeleteBlockedError",
+            )),
+            Anchor("Savings models", "backend/app/models/savings_box.py", (
+                "SavingsBookingType",
+                "SavingsTermStatus",
+                "SavingsBooking",
+            )),
+            Anchor("Savings schemas", "backend/app/schemas/savings_box.py", (
+                "SavingsBookingCreate",
+                "SavingsBookingUpdate",
+                "SavingsBookingRead",
+            )),
+            Anchor("Savings detail UI", "frontend/src/pages/SavingsBoxDetailPage.tsx", (
+                "depositForm",
+                "editBooking",
+                "deleteBooking",
+            )),
+        ),
+    ),
+    PatternDoc(
+        title="Savings Box Lifecycle",
+        purpose="Closing and reopening savings boxes.",
+        rule=(
+            "Closed boxes are immutable for normal mutations. Closing stores expected/actual closing values; "
+            "reopening clears closing fields and returns the box to active."
+        ),
+        domain_keys=("savings_box",),
+        anchors=(
+            Anchor("Savings lifecycle", "backend/app/services/savings/lifecycle.py", (
+                "close_savings_box",
+                "reopen_savings_box",
+                "closing_expected_amount",
+            )),
+            Anchor("Savings access", "backend/app/services/savings/access.py", ("assert_box_is_open",)),
+            Anchor("Savings router", "backend/app/routers/savings.py", (
+                "/{box_id}/close",
+                "/{box_id}/reopen",
+            )),
+            Anchor("Savings frontend API", "frontend/src/api/savingsBox.ts", (
+                "closeBox",
+                "reopenBox",
+            )),
+            Anchor("Savings detail UI", "frontend/src/pages/SavingsBoxDetailPage.tsx", (
+                "closeForm",
+                "closeBox",
+                "reopenBox",
+            )),
         ),
     ),
 )
@@ -199,6 +303,72 @@ def line_matches(path: Path, patterns: tuple[str, ...]) -> list[str]:
 
 def markdown_cell(value: str) -> str:
     return value.replace("|", "\\|")
+
+
+def module_registry_entries(repo_root: Path) -> list[dict[str, str]]:
+    registry_path = repo_root / "frontend/src/modules/registry.ts"
+    if not registry_path.exists():
+        return []
+
+    text = registry_path.read_text(encoding="utf-8")
+    entries: list[dict[str, str]] = []
+    blocks = re.findall(r"\{([\s\S]*?)\}", text)
+    for block in blocks:
+        key = _field_value(block, "key")
+        if not key:
+            continue
+        entries.append(
+            {
+                "key": key,
+                "label": _field_value(block, "label") or "-",
+                "route": _field_value(block, "route") or "-",
+                "navLabel": _field_value(block, "navLabel") or "-",
+            }
+        )
+    return entries
+
+
+def _field_value(block: str, field_name: str) -> str | None:
+    match = re.search(rf"{field_name}:\s*['\"]([^'\"]+)['\"]", block)
+    return match.group(1) if match else None
+
+
+def covered_domain_keys() -> set[str]:
+    keys: set[str] = set()
+    for pattern in PATTERNS:
+        for key in pattern.domain_keys:
+            if key != "*":
+                keys.add(key)
+    return keys
+
+
+def domain_coverage_section(repo_root: Path) -> list[str]:
+    entries = module_registry_entries(repo_root)
+    covered = covered_domain_keys()
+    lines = [
+        "",
+        "## Domain Coverage",
+        "",
+        "Generated from `frontend/src/modules/registry.ts` and pattern metadata.",
+        "",
+        "| Module Key | Label | Route | Pattern Coverage |",
+        "|---|---|---|---|",
+    ]
+    if not entries:
+        lines.append("| - | - | - | registry not found |")
+        return lines
+
+    for entry in entries:
+        key = entry["key"]
+        status = "covered" if key in covered else "missing pattern docs"
+        lines.append(
+            "| "
+            f"`{markdown_cell(key)}` | "
+            f"{markdown_cell(entry['label'])} | "
+            f"`{markdown_cell(entry['route'])}` | "
+            f"{status} |"
+        )
+    return lines
 
 
 def markdown_pattern_index(repo_root: Path) -> str:
@@ -261,6 +431,7 @@ def markdown_pattern_index(repo_root: Path) -> str:
                 f"{markdown_cell(match_text)} |"
             )
 
+    lines.extend(domain_coverage_section(repo_root))
     lines.extend(
         [
             "",
@@ -268,7 +439,8 @@ def markdown_pattern_index(repo_root: Path) -> str:
             "",
             "1. Use this file to find the current code anchors for a known pattern.",
             "2. If a status says `check`, inspect the listed file and update the pattern definition or implementation.",
-            "3. Keep detailed generated structure in `FRONTEND_MAP.md`, `API_MAP.md`, and `API_SCHEMAS.md`.",
+            "3. Use Domain Coverage to spot modules that exist in the registry but have no pattern documentation yet.",
+            "4. Keep detailed generated structure in `FRONTEND_MAP.md`, `API_MAP.md`, and `API_SCHEMAS.md`.",
             "",
         ]
     )
