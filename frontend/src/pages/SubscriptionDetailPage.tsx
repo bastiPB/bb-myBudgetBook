@@ -13,8 +13,8 @@ import { useNavigate, useParams } from 'react-router-dom'
 
 import ConfirmModal from '../components/ConfirmModal'
 import InfoModal from '../components/InfoModal'
+import TagBadge from '../components/TagBadge'
 import TagManagementModal from '../components/TagManagementModal'
-import TagSelector from '../components/TagSelector'
 import { getTags, setSubscriptionTags } from '../api/tags'
 import type { TagRead } from '../types/tag'
 import {
@@ -152,8 +152,9 @@ export default function SubscriptionDetailPage() {
   const [allTags, setAllTags] = useState<TagRead[]>([])
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([])
   const [showTagModal, setShowTagModal] = useState(false)
-  const [tagSaving, setTagSaving] = useState(false)
+  const [tagPickerOpen, setTagPickerOpen] = useState(false)
   const [tagError, setTagError] = useState<string | null>(null)
+  const tagPickerRef = useRef<HTMLDivElement>(null)
 
   // Abo + Preishistorie + Abrechnungshistorie + Buchungshistorie beim ersten Rendern parallel laden
   useEffect(() => {
@@ -191,21 +192,34 @@ export default function SubscriptionDetailPage() {
     setBillingHistory(billing)
   }
 
-  // --- Tags speichern ---
-  async function handleSaveTags() {
+  // --- Tag an-/abwählen und sofort speichern ---
+  async function handleToggleTag(tagId: string) {
     if (!sub) return
-    setTagSaving(true)
+    const newIds = selectedTagIds.includes(tagId)
+      ? selectedTagIds.filter(id => id !== tagId)
+      : [...selectedTagIds, tagId]
+    setSelectedTagIds(newIds)
     setTagError(null)
     try {
-      await setSubscriptionTags(sub.id, { tag_ids: selectedTagIds })
-      // sub.tags lokal aktualisieren ohne vollständigen Reload
-      setSub(prev => prev ? { ...prev, tags: allTags.filter(t => selectedTagIds.includes(t.id)) } : prev)
+      await setSubscriptionTags(sub.id, { tag_ids: newIds })
+      setSub(prev => prev ? { ...prev, tags: allTags.filter(t => newIds.includes(t.id)) } : prev)
     } catch (err) {
+      setSelectedTagIds(selectedTagIds) // Auswahl bei Fehler zurücksetzen
       setTagError(err instanceof Error ? err.message : 'Fehler beim Speichern.')
-    } finally {
-      setTagSaving(false)
     }
   }
+
+  // Klick außerhalb des Tag-Pickers schließt das Dropdown
+  useEffect(() => {
+    if (!tagPickerOpen) return
+    function handleOutside(e: MouseEvent) {
+      if (tagPickerRef.current && !tagPickerRef.current.contains(e.target as Node)) {
+        setTagPickerOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleOutside)
+    return () => document.removeEventListener('mousedown', handleOutside)
+  }, [tagPickerOpen])
 
   // --- Tag-Liste nach Änderungen im TagManagementModal neu laden ---
   async function handleTagsChanged() {
@@ -437,6 +451,9 @@ export default function SubscriptionDetailPage() {
     .filter(entry => entry.valid_from > today)
     .sort((a, b) => a.valid_from.localeCompare(b.valid_from))[0]
 
+  // Aktuell ausgewählte Tag-Objekte (für die Anzeige als Chips)
+  const selectedTags = allTags.filter(t => selectedTagIds.includes(t.id))
+
   // Acknowledge-Checkbox nur anzeigen wenn der Fehler auf vorhandene Buchungen hinweist
   const showAcknowledgeCheckbox = intervalError !== null && intervalError.includes('Buchung')
   const showShortSegmentCheckbox =
@@ -463,6 +480,151 @@ export default function SubscriptionDetailPage() {
           onClose={() => setShowTagModal(false)}
           onTagsChanged={handleTagsChanged}
         />
+      )}
+
+      {/* Preisänderungs-Modal — öffnet sich über Stift-Icon in der Details-Box */}
+      {showPriceForm && (
+        <div className="confirm-backdrop" onClick={() => {
+          setShowPriceForm(false)
+          setPriceForm({ amount: '', valid_from: '' })
+          setPriceError(null)
+        }}>
+          <div className="detail-interval-modal" onClick={e => e.stopPropagation()}>
+            <h3 className="detail-interval-modal-title">Preis ändern</h3>
+            <form onSubmit={handlePriceChange}>
+              <div className="detail-interval-modal-fields">
+                {/* type="text" damit Komma als Dezimaltrennzeichen akzeptiert wird */}
+                <input
+                  className="subs-input"
+                  placeholder="Neuer Betrag (z. B. 12,99)"
+                  value={priceForm.amount}
+                  onChange={e => setPriceForm(f => ({ ...f, amount: e.target.value }))}
+                  required
+                  autoFocus
+                />
+                <input
+                  className="subs-input"
+                  type="date"
+                  title="Wirkungsdatum (Vergangenheit, heute oder Zukunft)"
+                  value={priceForm.valid_from}
+                  onChange={e => setPriceForm(f => ({ ...f, valid_from: e.target.value }))}
+                  required
+                />
+              </div>
+              {priceError && <p className="detail-notes-error" style={{ marginTop: '8px' }}>{priceError}</p>}
+              <div className="detail-notes-actions" style={{ marginTop: '16px' }}>
+                <button type="submit" className="btn-primary-sm" disabled={priceLoading}>
+                  {priceLoading ? '…' : 'Speichern'}
+                </button>
+                <button
+                  type="button"
+                  className="btn-outline-sm"
+                  onClick={() => { setShowPriceForm(false); setPriceForm({ amount: '', valid_from: '' }); setPriceError(null) }}
+                >
+                  Abbrechen
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Intervallwechsel-Modal — öffnet sich über Stift-Icon in der Details-Box */}
+      {showIntervalForm && (
+        <div className="confirm-backdrop" onClick={() => {
+          setShowIntervalForm(false)
+          setIntervalForm({ amount: '', interval: 'monthly', valid_from: '' })
+          setIntervalError(null)
+          setIntervalAcknowledge(false)
+          setIntervalAcknowledgeShortSegment(false)
+        }}>
+          <div className="detail-interval-modal" onClick={e => e.stopPropagation()}>
+            <h3 className="detail-interval-modal-title">Intervall ändern</h3>
+            <form onSubmit={handleIntervalChange}>
+              <div className="detail-interval-modal-fields">
+                <input
+                  className="subs-input"
+                  placeholder="Neuer Betrag pro Intervall (z. B. 79,99)"
+                  value={intervalForm.amount}
+                  onChange={e => setIntervalForm(f => ({ ...f, amount: e.target.value }))}
+                  required
+                  autoFocus
+                />
+                <select
+                  className="subs-select"
+                  value={intervalForm.interval}
+                  onChange={e => setIntervalForm(f => ({ ...f, interval: e.target.value as BillingInterval }))}
+                >
+                  {INTERVALS.map(iv => (
+                    <option key={iv} value={iv}>{INTERVAL_LABELS[iv]}</option>
+                  ))}
+                </select>
+                <input
+                  className="subs-input"
+                  type="date"
+                  title="Erste Fälligkeit im neuen Intervall (wird auch neuer Anker)"
+                  value={intervalForm.valid_from}
+                  onChange={e => setIntervalForm(f => ({ ...f, valid_from: e.target.value }))}
+                  required
+                />
+              </div>
+              <p className="detail-notes-muted" style={{ marginTop: '8px' }}>
+                {(() => {
+                  const amount = parseAmountInput(intervalForm.amount)
+                  if (amount === null) return 'Hinweis: Der Betrag gilt immer pro gewähltem Intervall (z. B. bei „Vierteljährlich" pro Quartal).'
+                  const months = MONTHS_PER_PERIOD[intervalForm.interval]
+                  const yearly = (amount * 12) / months
+                  const label = INTERVAL_LABELS[intervalForm.interval]
+                  return `Hinweis: Der Betrag ist pro „${label}". Das entspricht ca. ${yearly.toFixed(2).replace('.', ',')} € pro Jahr.`
+                })()}
+              </p>
+              {intervalError && (
+                <>
+                  <p className="detail-notes-error">{intervalError}</p>
+                  {/* Acknowledge-Checkbox erscheint wenn der Server meldet dass Buchungen betroffen sind */}
+                  {showAcknowledgeCheckbox && (
+                    <label style={{ display: 'flex', gap: '8px', alignItems: 'flex-start', margin: '8px 0', fontSize: '0.875rem' }}>
+                      <input
+                        type="checkbox"
+                        checked={intervalAcknowledge}
+                        onChange={e => setIntervalAcknowledge(e.target.checked)}
+                      />
+                      Ich bestätige, dass die vorhandenen Buchungen angepasst werden sollen.
+                    </label>
+                  )}
+                  {showShortSegmentCheckbox && (
+                    <label style={{ display: 'flex', gap: '8px', alignItems: 'flex-start', margin: '8px 0', fontSize: '0.875rem' }}>
+                      <input
+                        type="checkbox"
+                        checked={intervalAcknowledgeShortSegment}
+                        onChange={e => setIntervalAcknowledgeShortSegment(e.target.checked)}
+                      />
+                      Ich bestätige trotzdem: Die Abrechnungsphase ist kürzer als eine volle Periode (Absicht oder Korrektur später).
+                    </label>
+                  )}
+                </>
+              )}
+              <div className="detail-notes-actions" style={{ marginTop: '16px' }}>
+                <button type="submit" className="btn-primary-sm" disabled={intervalLoading}>
+                  {intervalLoading ? '…' : 'Speichern'}
+                </button>
+                <button
+                  type="button"
+                  className="btn-outline-sm"
+                  onClick={() => {
+                    setShowIntervalForm(false)
+                    setIntervalForm({ amount: '', interval: 'monthly', valid_from: '' })
+                    setIntervalError(null)
+                    setIntervalAcknowledge(false)
+                    setIntervalAcknowledgeShortSegment(false)
+                  }}
+                >
+                  Abbrechen
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
 
       {/* Info/Fehler-Modal — API-Fehlermeldungen als Overlay */}
@@ -507,13 +669,6 @@ export default function SubscriptionDetailPage() {
         <div className="detail-header-info">
           <h1 className="detail-name">{sub.name}</h1>
           <StatusBadge status={sub.status} />
-          {/* Badge für angekündigte Preisänderung */}
-          {futureBilling && (
-            <span className="detail-price-announcement">
-              Aenderung ab {formatDate(futureBilling.valid_from)}: {formatAmount(futureBilling.amount)} EUR,
-              {' '}{INTERVAL_LABELS[futureBilling.interval]}
-            </span>
-          )}
           {logoError && <p className="detail-logo-error">{logoError}</p>}
         </div>
       </div>
@@ -546,10 +701,48 @@ export default function SubscriptionDetailPage() {
         <h2 className="detail-section-title">Details</h2>
         <dl className="detail-dl">
           <dt>Intervall</dt>
-          <dd>{INTERVAL_LABELS[sub.interval]}</dd>
+          <dd>
+            {INTERVAL_LABELS[sub.interval]}
+            <button
+              className="detail-inline-edit-btn"
+              onClick={() => {
+                setIntervalForm(f => ({ ...f, interval: sub.interval }))
+                setShowIntervalForm(true)
+              }}
+              title="Intervall ändern"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                <path d="m18.5 2.5 2 2L11 14l-4 1 1-4z"/>
+              </svg>
+            </button>
+          </dd>
 
           <dt>Aktueller Betrag</dt>
-          <dd>{formatAmount(sub.amount)} €</dd>
+          <dd>
+            {formatAmount(sub.amount)} €
+            <button
+              className="detail-inline-edit-btn"
+              onClick={() => setShowPriceForm(true)}
+              title="Preis ändern"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                <path d="m18.5 2.5 2 2L11 14l-4 1 1-4z"/>
+              </svg>
+            </button>
+          </dd>
+
+          {futureBilling && (
+            <>
+              <dt>Geplante Änderung</dt>
+              <dd>
+                <span className="detail-price-announcement">
+                  Ab {formatDate(futureBilling.valid_from)}: {formatAmount(futureBilling.amount)} €, {INTERVAL_LABELS[futureBilling.interval]}
+                </span>
+              </dd>
+            </>
+          )}
 
           <dt>Abgeschlossen am</dt>
           <dd>{formatDate(sub.started_on)}</dd>
@@ -557,156 +750,58 @@ export default function SubscriptionDetailPage() {
           <dt>Nächste Fälligkeit</dt>
           {/* next_due_date kann null sein wenn started_on in der Zukunft liegt */}
           <dd>{sub.next_due_date ? formatDate(sub.next_due_date) : '—'}</dd>
+
+          <dt>Tags</dt>
+          <dd>
+            <div className="detail-tags-inline" ref={tagPickerRef}>
+              {selectedTags.map(tag => (
+                <TagBadge
+                  key={tag.id}
+                  tag={tag}
+                  onRemove={() => handleToggleTag(tag.id)}
+                />
+              ))}
+              <button
+                type="button"
+                className="detail-tags-add-btn"
+                onClick={() => setTagPickerOpen(v => !v)}
+              >
+                + Hinzufügen
+              </button>
+              {tagPickerOpen && (
+                <div className="detail-tags-picker">
+                  {allTags.filter(t => !selectedTagIds.includes(t.id)).length === 0 ? (
+                    <p className="detail-tags-picker-empty">Alle Tags bereits zugewiesen.</p>
+                  ) : (
+                    allTags
+                      .filter(t => !selectedTagIds.includes(t.id))
+                      .map(tag => (
+                        <button
+                          key={tag.id}
+                          type="button"
+                          className="detail-tags-picker-option"
+                          onClick={() => { handleToggleTag(tag.id); setTagPickerOpen(false) }}
+                        >
+                          <span className="detail-tags-picker-dot" style={{ background: tag.color }} />
+                          {tag.name}
+                        </button>
+                      ))
+                  )}
+                  <button
+                    type="button"
+                    className="detail-tags-picker-manage"
+                    onClick={() => { setTagPickerOpen(false); setShowTagModal(true) }}
+                  >
+                    Tags verwalten...
+                  </button>
+                </div>
+              )}
+            </div>
+            {tagError && <p className="detail-notes-error" style={{ marginTop: '6px' }}>{tagError}</p>}
+          </dd>
         </dl>
       </div>
 
-      {/* Preisänderung — nur Betrag ändern, Intervall bleibt gleich */}
-      <div className="detail-card">
-        <div className="detail-section-header">
-          <h2 className="detail-section-title">Preisänderung</h2>
-          {!showPriceForm && (
-            <button className="btn-outline-sm" onClick={() => setShowPriceForm(true)}>
-              Preis ändern
-            </button>
-          )}
-        </div>
-
-        {showPriceForm && (
-          <form className="detail-price-form" onSubmit={handlePriceChange}>
-            <div className="detail-price-form-row">
-              {/* type="text" damit Komma als Dezimaltrennzeichen akzeptiert wird */}
-              <input
-                className="subs-input subs-input-sm"
-                placeholder="Neuer Betrag (z. B. 12,99)"
-                value={priceForm.amount}
-                onChange={e => setPriceForm(f => ({ ...f, amount: e.target.value }))}
-                required
-                autoFocus
-              />
-              <input
-                className="subs-input subs-input-sm"
-                type="date"
-                title="Wirkungsdatum (Vergangenheit, heute oder Zukunft)"
-                value={priceForm.valid_from}
-                onChange={e => setPriceForm(f => ({ ...f, valid_from: e.target.value }))}
-                required
-              />
-            </div>
-            {priceError && <p className="detail-notes-error">{priceError}</p>}
-            <div className="detail-notes-actions">
-              <button type="submit" className="btn-primary-sm" disabled={priceLoading}>
-                {priceLoading ? '…' : 'Speichern'}
-              </button>
-              <button
-                type="button"
-                className="btn-outline-sm"
-                onClick={() => { setShowPriceForm(false); setPriceForm({ amount: '', valid_from: '' }); setPriceError(null) }}
-              >
-                Abbrechen
-              </button>
-            </div>
-          </form>
-        )}
-      </div>
-
-      {/* Intervallwechsel — Betrag und Abrechnungsrhythmus gemeinsam ändern (v0.2.4) */}
-      <div className="detail-card">
-        <div className="detail-section-header">
-          <h2 className="detail-section-title">Intervallwechsel</h2>
-          {!showIntervalForm && (
-            <button className="btn-outline-sm" onClick={() => setShowIntervalForm(true)}>
-              Intervall ändern
-            </button>
-          )}
-        </div>
-
-        {showIntervalForm && (
-          <form className="detail-price-form" onSubmit={handleIntervalChange}>
-            <div className="detail-price-form-row">
-              <input
-                className="subs-input subs-input-sm"
-                placeholder="Neuer Betrag pro Intervall (z. B. 79,99)"
-                value={intervalForm.amount}
-                onChange={e => setIntervalForm(f => ({ ...f, amount: e.target.value }))}
-                required
-                autoFocus
-              />
-              <select
-                className="subs-select"
-                value={intervalForm.interval}
-                onChange={e => setIntervalForm(f => ({ ...f, interval: e.target.value as BillingInterval }))}
-              >
-                {INTERVALS.map(iv => (
-                  <option key={iv} value={iv}>{INTERVAL_LABELS[iv]}</option>
-                ))}
-              </select>
-              <input
-                className="subs-input subs-input-sm"
-                type="date"
-                title="Erste Fälligkeit im neuen Intervall (wird auch neuer Anker)"
-                value={intervalForm.valid_from}
-                onChange={e => setIntervalForm(f => ({ ...f, valid_from: e.target.value }))}
-                required
-              />
-            </div>
-            <p className="detail-notes-muted" style={{ marginTop: '6px' }}>
-              {(() => {
-                const amount = parseAmountInput(intervalForm.amount)
-                if (amount === null) return 'Hinweis: Der Betrag gilt immer pro gewähltem Intervall (z. B. bei „Vierteljährlich“ pro Quartal).'
-                const months = MONTHS_PER_PERIOD[intervalForm.interval]
-                const yearly = (amount * 12) / months
-                const label = INTERVAL_LABELS[intervalForm.interval]
-                return `Hinweis: Der Betrag ist pro „${label}“. Das entspricht ca. ${yearly.toFixed(2).replace('.', ',')} € pro Jahr.`
-              })()}
-            </p>
-            {intervalError && (
-              <>
-                <p className="detail-notes-error">{intervalError}</p>
-                {/* Acknowledge-Checkbox erscheint wenn der Server meldet dass Buchungen betroffen sind.
-                    User muss bewusst bestätigen — dann wird der Request mit dem Flag nochmals abgeschickt. */}
-                {showAcknowledgeCheckbox && (
-                  <label style={{ display: 'flex', gap: '8px', alignItems: 'flex-start', margin: '8px 0', fontSize: '0.875rem' }}>
-                    <input
-                      type="checkbox"
-                      checked={intervalAcknowledge}
-                      onChange={e => setIntervalAcknowledge(e.target.checked)}
-                    />
-                    Ich bestätige, dass die vorhandenen Buchungen angepasst werden sollen.
-                  </label>
-                )}
-                {showShortSegmentCheckbox && (
-                  <label style={{ display: 'flex', gap: '8px', alignItems: 'flex-start', margin: '8px 0', fontSize: '0.875rem' }}>
-                    <input
-                      type="checkbox"
-                      checked={intervalAcknowledgeShortSegment}
-                      onChange={e => setIntervalAcknowledgeShortSegment(e.target.checked)}
-                    />
-                    Ich bestätige trotzdem: Die Abrechnungsphase ist kürzer als eine volle Periode (Absicht oder Korrektur später).
-                  </label>
-                )}
-              </>
-            )}
-            <div className="detail-notes-actions">
-              <button type="submit" className="btn-primary-sm" disabled={intervalLoading}>
-                {intervalLoading ? '…' : 'Speichern'}
-              </button>
-              <button
-                type="button"
-                className="btn-outline-sm"
-                onClick={() => {
-                  setShowIntervalForm(false)
-                  setIntervalForm({ amount: '', interval: 'monthly', valid_from: '' })
-                  setIntervalError(null)
-                  setIntervalAcknowledge(false)
-                  setIntervalAcknowledgeShortSegment(false)
-                }}
-              >
-                Abbrechen
-              </button>
-            </div>
-          </form>
-        )}
-      </div>
 
       {/* Notizen */}
       <div className="detail-card">
@@ -870,23 +965,6 @@ export default function SubscriptionDetailPage() {
           </table>
         </div>
       )}
-
-      {/* Tags (v0.2.7) */}
-      <div className="detail-card">
-        <h2 className="detail-section-title">Tags</h2>
-        <TagSelector
-          allTags={allTags}
-          selectedIds={selectedTagIds}
-          onChange={setSelectedTagIds}
-          onManageTags={() => setShowTagModal(true)}
-        />
-        {tagError && <p className="detail-notes-error">{tagError}</p>}
-        <div className="detail-notes-actions" style={{ marginTop: '10px' }}>
-          <button className="btn-primary-sm" onClick={handleSaveTags} disabled={tagSaving}>
-            {tagSaving ? '…' : 'Tags speichern'}
-          </button>
-        </div>
-      </div>
 
       {/* Aktionen */}
       <div className="detail-actions">

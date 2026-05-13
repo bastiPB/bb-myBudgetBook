@@ -497,27 +497,50 @@ export default function SubscriptionsPage() {
                         <div className="subs-action-cell">
                           {sub.status === 'active' && (
                             <>
-                              <button className="btn-outline-sm" onClick={() => startEdit(sub)}>
-                                Bearbeiten
+                              <button
+                                className="subs-icon-btn"
+                                onClick={() => startEdit(sub)}
+                                title="Bearbeiten"
+                              >
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                                  <path d="m18.5 2.5 2 2L11 14l-4 1 1-4z"/>
+                                </svg>
                               </button>
                               <button
-                                className="btn-outline-sm subs-btn-suspend"
+                                className="subs-icon-btn subs-icon-btn-suspend"
                                 onClick={() => handleSuspend(sub.id, sub.name)}
+                                title="Pausieren"
                               >
-                                Pausieren
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                  <rect x="6" y="4" width="4" height="16"/>
+                                  <rect x="14" y="4" width="4" height="16"/>
+                                </svg>
                               </button>
                             </>
                           )}
                           {sub.status === 'suspended' && (
                             <button
-                              className="btn-outline-sm subs-btn-resume"
+                              className="subs-icon-btn subs-icon-btn-resume"
                               onClick={() => handleResume(sub.id, sub.name)}
+                              title="Fortsetzen"
                             >
-                              Fortsetzen
+                              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                <polygon points="5 3 19 12 5 21 5 3"/>
+                              </svg>
                             </button>
                           )}
-                          <button className="btn-danger" onClick={() => handleDelete(sub.id, sub.name)}>
-                            Löschen
+                          <button
+                            className="subs-icon-btn subs-icon-btn-danger"
+                            onClick={() => handleDelete(sub.id, sub.name)}
+                            title="Löschen"
+                          >
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                              <polyline points="3 6 5 6 21 6"/>
+                              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                              <path d="M10 11v6M14 11v6"/>
+                              <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+                            </svg>
                           </button>
                         </div>
                       </td>

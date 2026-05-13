@@ -428,6 +428,81 @@
   text-decoration: underline;
 }
 
+/* ── Icon-Buttons in der Aktionsspalte ── */
+.subs-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 6px;
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.subs-icon-btn:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  background: var(--color-accent-light);
+}
+
+.subs-icon-btn-suspend {
+  border-color: #e67e22;
+  color: #935116;
+}
+.subs-icon-btn-suspend:hover {
+  border-color: #d35400;
+  color: #7d4408;
+  background: #fef5e7;
+}
+[data-theme="dark"] .subs-icon-btn-suspend {
+  border-color: #f4a261;
+  color: #f4a261;
+}
+[data-theme="dark"] .subs-icon-btn-suspend:hover {
+  background: #2e1e05;
+}
+
+.subs-icon-btn-resume {
+  border-color: #27ae60;
+  color: #1d8348;
+}
+.subs-icon-btn-resume:hover {
+  border-color: #1e8449;
+  color: #145a32;
+  background: #eafaf1;
+}
+[data-theme="dark"] .subs-icon-btn-resume {
+  border-color: #52b788;
+  color: #52b788;
+}
+[data-theme="dark"] .subs-icon-btn-resume:hover {
+  background: #0d2e1a;
+}
+
+.subs-icon-btn-danger {
+  border-color: #c0392b;
+  color: #c0392b;
+}
+.subs-icon-btn-danger:hover {
+  border-color: #c0392b;
+  background: #c0392b;
+  color: #fff;
+}
+[data-theme="dark"] .subs-icon-btn-danger {
+  border-color: #e07070;
+  color: #e07070;
+}
+[data-theme="dark"] .subs-icon-btn-danger:hover {
+  background: #e07070;
+  color: #1a0a0a;
+}
+
 /* ── Pausieren-Button (orange Outline) ── */
 .subs-btn-suspend {
   border-color: #e67e22 !important;

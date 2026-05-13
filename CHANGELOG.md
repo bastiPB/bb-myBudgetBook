@@ -5,6 +5,12 @@ Format based on Keep a Changelog.
 
 ## [Unreleased]
 
+## [0.2.72] - 2026-05-13
+
+### Modified
+
+- **Change-Interval/Price**: Auf Detail Seite für Subscription: verschoben in Details. Auf der Übersichtsseite Text durch Icon ersetzt (Bearbeiten, Pause, Löschen)
+
 ## [0.2.71] - 2026-05-13
 
 ### Fixed
