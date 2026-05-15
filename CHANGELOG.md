@@ -5,6 +5,12 @@ Format based on Keep a Changelog.
 
 ## [Unreleased]
 
+## [0.2.73] - 2026-05-15
+
+### Changed
+
+- **Config: Fail-secure Default** — `IS_PRODUCTION` ersetzt `ENVIRONMENT` als Konfigurationsvariable. Standard ist jetzt `true` (Produktionsmodus), sodass ein fehlender `.env`-Eintrag automatisch zum sicheren Cookie-Verhalten führt. Lokale Entwicklung: `IS_PRODUCTION=false` in `.env` setzen. README und `.env.example` aktualisiert.
+
 ## [0.2.72] - 2026-05-13
 
 ### Modified

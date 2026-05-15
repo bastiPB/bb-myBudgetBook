@@ -36,7 +36,7 @@ def _set_session_cookie(response: Response, user_id: str) -> None:
         httponly=True,   # JavaScript kann den Cookie nicht lesen (Schutz vor XSS)
         samesite="lax",  # Schutz vor CSRF-Angriffen
         # secure=True nur in Produktion — in Entwicklung läuft kein HTTPS
-        secure=settings.environment == "production",
+        secure=settings.is_production,
     )
 
 
