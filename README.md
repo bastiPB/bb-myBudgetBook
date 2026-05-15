@@ -96,12 +96,12 @@ cp .env.example .env
 ### Produktion (empfohlen)
 Backend ist **nur über nginx** erreichbar — kein direkt exponierter Port.
 
-Vor dem ersten Start: in der `.env` die Umgebung auf Produktion setzen:
+Vor dem ersten Start: in der `.env` sicherstellen, dass der Produktionsmodus aktiv ist:
 ```
-ENVIRONMENT=production
+IS_PRODUCTION=true
 ```
-> Ohne diesen Wert wird der Session-Cookie ohne `Secure`-Flag gesetzt — das ist
-> nur für lokale Entwicklung (HTTP) gedacht, nicht für den Produktionsbetrieb.
+> Ohne diesen Wert (oder wenn `.env` fehlt) ist der Standard bereits `true` —
+> der Session-Cookie wird dann mit `Secure`-Flag gesetzt und erfordert HTTPS.
 
 ```bash
 docker compose up --build
@@ -164,13 +164,13 @@ Ohne `--build` verwendet Docker das zuletzt gebaute Image — Codeänderungen we
 > kann sich **nicht einloggen**, solange kein HTTPS eingerichtet ist.
 > Der Login scheint zu klappen, aber jede weitere Seite zeigt eine 401-Fehlermeldung.
 
-| Adresse | Protokoll | `ENVIRONMENT` | Funktioniert? |
+| Adresse | Protokoll | `IS_PRODUCTION` | Funktioniert? |
 |---|---|---|---|
 | `localhost` / `127.0.0.1` | HTTP | egal | ✅ Browser-Ausnahme |
-| Heimnetz (`192.168.x.x`) | HTTP | `development` | ✅ (aber kein HTTPS — nur für Vertrauensnetzwerke) |
-| Heimnetz (`192.168.x.x`) | HTTP | `production` | ❌ Cookie blockiert → Login schlägt fehl |
-| Heimnetz (`192.168.x.x`) | HTTPS | `production` | ✅ |
-| Eigene Domain | HTTPS | `production` | ✅ |
+| Heimnetz (`192.168.x.x`) | HTTP | `false` | ✅ (aber kein HTTPS — nur für Vertrauensnetzwerke) |
+| Heimnetz (`192.168.x.x`) | HTTP | `true` | ❌ Cookie blockiert → Login schlägt fehl |
+| Heimnetz (`192.168.x.x`) | HTTPS | `true` | ✅ |
+| Eigene Domain | HTTPS | `true` | ✅ |
 
 **Ausnahme:** Auf demselben Rechner unter `http://localhost` oder `http://127.0.0.1`
 funktioniert alles — Browser behandeln `localhost` als sicheren Kontext (auch ohne HTTPS).
@@ -196,7 +196,7 @@ Etwas mehr Konfigurationsaufwand als Caddy, dafür sehr flexibel.
 
 #### Option 3: Nur im lokalen Netz (kein HTTPS)
 Wenn die App ausschließlich auf dem **selben Rechner** läuft und du nicht von anderen
-Geräten darauf zugreifen willst, kannst du mit `ENVIRONMENT=development` arbeiten —
+Geräten darauf zugreifen willst, kannst du mit `IS_PRODUCTION=false` arbeiten —
 dann ist der Cookie ohne `Secure`-Flag gesetzt und funktioniert auch über HTTP.
 ⚠️ Nicht für den Mehrbenutzerbetrieb oder öffentlich erreichbare Server geeignet.
 

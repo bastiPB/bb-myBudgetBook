@@ -5,7 +5,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     app_name: str = "BB-myBudgetBook API"
-    environment: str = "development"
+    # Fail-secure: ohne Eintrag in .env gilt Produktionsmodus (sichere Cookies).
+    # In .env für lokale Entwicklung: IS_PRODUCTION=false
+    is_production: bool = True
     # PostgreSQL-Verbindungs-URL — wird aus der .env-Datei gelesen.
     # Format: postgresql+psycopg2://USER:PASSWORD@HOST:PORT/DBNAME
     # Im Docker-Netzwerk ist HOST der Service-Name "db" aus docker-compose.yml.
