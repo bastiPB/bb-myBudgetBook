@@ -3,7 +3,23 @@
 All notable changes to this project will be documented in this file.
 Format based on Keep a Changelog.
 
-## [Unreleased]
+## [0.2.8] - 2026-05-15
+
+### Added
+
+**Subscription-Erstellung als Modal** — Das Inline-Formular in der Abo-Übersicht wurde durch ein fokussiertes Modal ersetzt.
+
+- Neue Komponente `SubscriptionCreateModal` mit geführtem Aufbau in drei Sektionen:
+  - **Logo + Name**: klickbare Upload-Zone (gestrichelte Box, Pfeil-Icon, Hover-Feedback), Vorschau mit ×-Badge zum Entfernen — kein redundanter Text-Link
+  - **Details zu deinem Abo**: Betrag + Abrechnungszeitraum nebeneinander, Abschlussdatum darunter (optional)
+  - **Tags hinzufügen** (optional): TagSelector mit direktem Zugang zum TagManagementModal
+- Logo-Upload direkt beim Erstellen: Vorschau via `URL.createObjectURL`, Object-URL wird bei Wechsel und Unmount freigegeben
+- Dreistufige Fehlerbehandlung: Create-Fehler (kein Abo → Retry), Tag-Fehler (Abo existiert → nur Schließen), Logo-Fehler (Abo existiert → Logo erneut versuchen oder Schließen)
+- Beim Schließen nach Teil-Erfolg wird das bereits angelegte Abo trotzdem in die Liste übernommen
+- Overlay-Klick schließt das Modal nicht (verhindert versehentlichen Datenverlust)
+- Tag-Dropdown-Fix: Scroll liegt auf dem Backdrop, nicht auf der Modal-Box — kein Doppel-Scrollen, kein Abschneiden des Dropdowns
+- **"Tags verwalten"-Button** in der Kopfzeile der Abo-Übersicht (neben "+ Neues Abo")
+- Inline-Create-Card aus `SubscriptionsPage` entfernt; `TagSelector`, `TagManagementModal` und Create-Logik vollständig in die Modal-Komponente verlagert
 
 ## [0.2.73] - 2026-05-15
 

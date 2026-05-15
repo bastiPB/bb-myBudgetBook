@@ -1,12 +1,18 @@
 /* SubscriptionsPage.css — Styling für die Abo-Verwaltung.
    Alle Farben über CSS-Variablen aus AppLayout.css. */
 
-/* ── Seitenheader: Titel + Button ── */
+/* ── Seitenheader: Titel + Buttons ── */
 .subs-page-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   margin-bottom: 6px;
+}
+
+.subs-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .subs-count {
