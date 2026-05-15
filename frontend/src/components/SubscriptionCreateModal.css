@@ -1,0 +1,368 @@
+/* SubscriptionCreateModal.css — Overlay + Modal-Box für das Abo-Erstell-Formular.
+   Alle Farben über CSS-Variablen aus AppLayout.css.
+
+   WICHTIG: Das Scrollen liegt auf dem Backdrop, NICHT auf .create-modal.
+   So kann das Tag-Dropdown (position: absolute) frei nach unten aufklappen,
+   ohne vom Modal-Container abgeschnitten zu werden. */
+
+/* ── Backdrop: übernimmt das Scrollen ── */
+.create-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  z-index: 1000;
+  overflow-y: auto;
+  padding: 40px 16px 60px;
+  /* Kein onClick-Close — Klick außerhalb schließt das Modal nicht */
+}
+
+/* ── Modal-Box ── */
+.create-modal {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  width: 100%;
+  max-width: 500px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2);
+  /* Kein overflow-y — Dropdown darf außerhalb rendern */
+}
+
+/* ── Kopfzeile ── */
+.create-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 24px 28px 0;
+}
+
+.create-modal-title {
+  font-size: 19px;
+  font-weight: 700;
+  color: var(--color-text);
+  margin: 0 0 4px;
+}
+
+.create-modal-subtitle {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  margin: 0;
+  line-height: 1.4;
+}
+
+.create-modal-close {
+  background: none;
+  border: none;
+  font-size: 16px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: background 0.15s, color 0.15s;
+  line-height: 1;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.create-modal-close:hover {
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+/* ── Sektionen ── */
+.create-modal-section {
+  padding: 20px 28px;
+  border-top: 1px solid var(--color-border);
+}
+
+/* Erste Sektion (direkt nach Header) hat keinen Abstand oben */
+.create-modal-section:first-of-type {
+  margin-top: 16px;
+}
+
+/* Tag-Sektion braucht etwas mehr Platz nach unten damit das Dropdown Raum hat */
+.create-modal-section-tags {
+  padding-bottom: 8px;
+}
+
+.create-modal-section-heading {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 0 0 14px;
+}
+
+/* ── Logo + Name zusammen (Identitäts-Zeile) ── */
+.create-modal-identity {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+/* Wrapper der Logo-Zone — relativ für das × Badge */
+.create-modal-logo-zone {
+  position: relative;
+  flex-shrink: 0;
+  width: 64px;
+  height: 64px;
+}
+
+/* Upload-Fläche (kein Logo gewählt): gestrichelte Kante, Pfeil + Text */
+.create-modal-logo-upload {
+  width: 64px;
+  height: 64px;
+  border-radius: 10px;
+  border: 2px dashed var(--color-border);
+  background: var(--color-bg);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 0;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.create-modal-logo-upload:hover {
+  border-color: var(--color-accent);
+  background: var(--color-accent-light, #e8f0ff);
+}
+
+.create-modal-logo-upload:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.create-modal-upload-icon {
+  font-size: 18px;
+  color: var(--color-text-muted);
+  line-height: 1;
+}
+
+.create-modal-upload-text {
+  font-size: 10px;
+  font-family: inherit;
+  color: var(--color-text-muted);
+  letter-spacing: 0.02em;
+}
+
+.create-modal-logo-upload:hover .create-modal-upload-icon,
+.create-modal-logo-upload:hover .create-modal-upload-text {
+  color: var(--color-accent);
+}
+
+/* Vorschau-Button wenn Logo gewählt: Bild klickbar zum Wechseln */
+.create-modal-logo-preview-btn {
+  width: 64px;
+  height: 64px;
+  padding: 0;
+  border: none;
+  border-radius: 10px;
+  background: none;
+  cursor: pointer;
+  display: block;
+  overflow: hidden;
+  transition: opacity 0.15s;
+}
+
+.create-modal-logo-preview-btn:hover {
+  opacity: 0.8;
+}
+
+.create-modal-logo-preview-btn:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
+.create-modal-logo-img {
+  width: 64px;
+  height: 64px;
+  border-radius: 10px;
+  object-fit: cover;
+  border: 1px solid var(--color-border);
+  display: block;
+}
+
+/* × Badge in der oberen rechten Ecke des Vorschau-Bilds */
+.create-modal-logo-remove {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: 14px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  /* Über dem Bild rendern */
+  z-index: 1;
+}
+
+.create-modal-logo-remove:hover {
+  background: #c0392b;
+  border-color: #c0392b;
+  color: #fff;
+}
+
+.create-modal-identity-fields {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Datei-Input: visuell versteckt, wird per Button ausgelöst */
+.create-modal-file-input {
+  display: none;
+}
+
+/* ── Formularfelder ── */
+.create-modal-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text);
+  margin-bottom: 6px;
+}
+
+.create-modal-optional {
+  font-weight: 400;
+  color: var(--color-text-muted);
+}
+
+.create-modal-input {
+  width: 100%;
+  padding: 9px 12px;
+  font-size: 14px;
+  font-family: inherit;
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.create-modal-input:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-light);
+}
+
+.create-modal-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.create-modal-input-date {
+  /* Datumsfeld nicht volle Breite — wirkt proportionaler */
+  max-width: 200px;
+}
+
+.create-modal-select {
+  width: 100%;
+  padding: 9px 12px;
+  font-size: 14px;
+  font-family: inherit;
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  outline: none;
+  cursor: pointer;
+  box-sizing: border-box;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.create-modal-select:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-light);
+}
+
+.create-modal-select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Einzelnes Feld mit Label + Input untereinander */
+.create-modal-field {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Zwei Felder nebeneinander (Betrag + Intervall) */
+.create-modal-two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+/* ── Fehleranzeige ── */
+.create-modal-error {
+  font-size: 13px;
+  color: var(--color-error, #c0392b);
+  margin: 0;
+  padding: 0 28px 12px;
+}
+
+/* ── Aktions-Buttons ── */
+.create-modal-actions {
+  display: flex;
+  gap: 10px;
+  padding: 16px 28px 24px;
+  border-top: 1px solid var(--color-border);
+}
+
+/* ── Responsive: kleiner Viewport ── */
+@media (max-width: 480px) {
+  .create-modal-backdrop {
+    padding: 16px 8px 40px;
+  }
+
+  .create-modal-header {
+    padding: 20px 18px 0;
+  }
+
+  .create-modal-section {
+    padding: 16px 18px;
+  }
+
+  .create-modal-two-col {
+    grid-template-columns: 1fr;
+  }
+
+  .create-modal-input-date {
+    max-width: 100%;
+  }
+
+  .create-modal-error {
+    padding: 0 18px 12px;
+  }
+
+  .create-modal-actions {
+    flex-direction: column;
+    padding: 14px 18px 20px;
+  }
+
+  .create-modal-actions .btn-primary,
+  .create-modal-actions .btn-outline {
+    width: 100%;
+    text-align: center;
+  }
+}

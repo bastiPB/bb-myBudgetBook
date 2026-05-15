@@ -9,11 +9,10 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import ConfirmModal from '../components/ConfirmModal'
+import SubscriptionCreateModal from '../components/SubscriptionCreateModal'
 import TagBadge from '../components/TagBadge'
 import TagManagementModal from '../components/TagManagementModal'
-import TagSelector from '../components/TagSelector'
 import {
-  createSubscription,
   deleteSubscription,
   getLogoUrl,
   getSubscriptions,
@@ -21,26 +20,19 @@ import {
   suspendSubscription,
   updateSubscription,
 } from '../api/subscriptions'
-import { getTags, setSubscriptionTags } from '../api/tags'
-import type { BillingInterval, SubscriptionRead, SubscriptionStatus } from '../types/subscription'
+import { getTags } from '../api/tags'
+import type { SubscriptionRead, SubscriptionStatus } from '../types/subscription'
 import type { TagRead } from '../types/tag'
 import {
   formatAmount,
   formatDate,
   INTERVAL_LABELS,
-  parseAmount,
   STATUS_LABELS,
 } from '../types/subscription'
 import './SubscriptionsPage.css'
 
-// Alle Intervalle in der gewünschten Reihenfolge für das Dropdown (v0.2.3: semiannual neu)
-const INTERVALS: BillingInterval[] = ['monthly', 'quarterly', 'semiannual', 'yearly', 'biennial']
-
 // Mögliche Seitengrößen — as const damit TypeScript die genauen Werte kennt
 const PAGE_SIZES = [25, 50, 100] as const
-
-// Startformular für "Neues Abo": started_on optional (Backend setzt default auf heute)
-const EMPTY_CREATE = { name: '', amount: '', started_on: '', interval: 'monthly' as BillingInterval }
 
 // Startformular fuer "Bearbeiten": Intervallwechsel laufen ueber die Detailseite.
 const EMPTY_EDIT = { name: '' }
@@ -76,11 +68,10 @@ export default function SubscriptionsPage() {
   const [subscriptions, setSubscriptions] = useState<SubscriptionRead[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
 
-  // Formular "Neues Abo": showCreate steuert ob es sichtbar ist
-  const [showCreate, setShowCreate] = useState(false)
-  const [createForm, setCreateForm] = useState(EMPTY_CREATE)
-  const [createError, setCreateError] = useState<string | null>(null)
-  const [createLoading, setCreateLoading] = useState(false)
+  // Steuert ob das Create-Modal offen ist
+  const [showCreateModal, setShowCreateModal] = useState(false)
+  // Steuert ob das TagManagementModal offen ist
+  const [showTagModal, setShowTagModal] = useState(false)
 
   // Inline-Bearbeitung: editingId ist die ID des Abos das gerade bearbeitet wird
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -91,14 +82,10 @@ export default function SubscriptionsPage() {
   // Bestätigungs-Modal: null = geschlossen
   const [modal, setModal] = useState<ModalState | null>(null)
 
-  // Alle Tags des Users (für TagSelector im Erstell-Formular)
+  // Alle Tags des Users (für den Tag-Filter und das Create-Modal)
   const [allTags, setAllTags] = useState<TagRead[]>([])
-  // Gewählte Tag-IDs im Erstell-Formular
-  const [createTagIds, setCreateTagIds] = useState<string[]>([])
   // Aktive Tag-Filter auf der Übersichtsseite (UND-Verknüpfung)
   const [activeFilterTagIds, setActiveFilterTagIds] = useState<string[]>([])
-  // Steuert ob das TagManagementModal offen ist
-  const [showTagModal, setShowTagModal] = useState(false)
 
   // Suche + Paginierung
   const [searchQuery, setSearchQuery] = useState('')
@@ -120,9 +107,8 @@ export default function SubscriptionsPage() {
   async function handleTagsChanged() {
     const tags = await getTags().catch(() => allTags)
     setAllTags(tags)
-    // Falls gelöschte Tags in der Auswahl oder im Filter waren: bereinigen
+    // Falls gelöschte Tags im aktiven Filter waren: bereinigen
     const validIds = new Set(tags.map(t => t.id))
-    setCreateTagIds(prev => prev.filter(id => validIds.has(id)))
     setActiveFilterTagIds(prev => prev.filter(id => validIds.has(id)))
   }
 
@@ -159,42 +145,6 @@ export default function SubscriptionsPage() {
   function handlePageSizeChange(size: number) {
     setPageSize(size)
     setCurrentPage(0)
-  }
-
-  // --- Neues Abo anlegen ---
-  async function handleCreate(e: React.SyntheticEvent<HTMLFormElement>) {
-    e.preventDefault()
-    setCreateError(null)
-
-    const amountNum = parseAmount(createForm.amount)
-    if (isNaN(amountNum) || amountNum < 0) {
-      setCreateError('Bitte einen gültigen Betrag eingeben (z. B. 9,99).')
-      return
-    }
-
-    setCreateLoading(true)
-    try {
-      let neu = await createSubscription({
-        name: createForm.name,
-        amount: amountNum,
-        interval: createForm.interval,
-        // started_on nur mitschicken wenn der User ein Datum eingetragen hat
-        started_on: createForm.started_on || undefined,
-      })
-      // Falls Tags ausgewählt wurden: direkt nach dem Anlegen zuweisen
-      if (createTagIds.length > 0) {
-        const assignedTags = await setSubscriptionTags(neu.id, { tag_ids: createTagIds })
-        neu = { ...neu, tags: assignedTags }
-      }
-      setSubscriptions(prev => [...prev, neu])
-      setCreateForm(EMPTY_CREATE)
-      setCreateTagIds([])
-      setShowCreate(false)
-    } catch (err) {
-      setCreateError(err instanceof Error ? err.message : 'Fehler beim Anlegen.')
-    } finally {
-      setCreateLoading(false)
-    }
   }
 
   // --- Bearbeiten starten ---
@@ -272,10 +222,20 @@ export default function SubscriptionsPage() {
   return (
     <div>
 
-      {/* TagManagementModal — CRUD für Tags, aufrufbar aus dem TagSelector heraus */}
+      {/* TagManagementModal — über "Tags verwalten"-Button in der Kopfzeile */}
       {showTagModal && (
         <TagManagementModal
           onClose={() => setShowTagModal(false)}
+          onTagsChanged={handleTagsChanged}
+        />
+      )}
+
+      {/* Create-Modal — wird über den "+ Neues Abo"-Button geöffnet */}
+      {showCreateModal && (
+        <SubscriptionCreateModal
+          allTags={allTags}
+          onClose={() => setShowCreateModal(false)}
+          onCreated={sub => setSubscriptions(prev => [...prev, sub])}
           onTagsChanged={handleTagsChanged}
         />
       )}
@@ -292,15 +252,17 @@ export default function SubscriptionsPage() {
         />
       )}
 
-      {/* Seitenheader: Titel + "Neues Abo"-Button */}
+      {/* Seitenheader: Titel + Aktions-Buttons */}
       <div className="subs-page-header">
         <h1 className="page-title" style={{ margin: 0 }}>Meine Abos</h1>
-        <button
-          className={showCreate ? 'btn-outline' : 'btn-primary'}
-          onClick={() => { setShowCreate(v => !v); setCreateForm(EMPTY_CREATE); setCreateError(null); setCreateTagIds([]) }}
-        >
-          {showCreate ? 'Abbrechen' : '+ Neues Abo'}
-        </button>
+        <div className="subs-header-actions">
+          <button className="btn-outline" onClick={() => setShowTagModal(true)}>
+            Tags verwalten
+          </button>
+          <button className="btn-primary" onClick={() => setShowCreateModal(true)}>
+            + Neues Abo
+          </button>
+        </div>
       </div>
 
       {/* Anzahl-Info */}
@@ -310,64 +272,6 @@ export default function SubscriptionsPage() {
           : `${subscriptions.length} Abo${subscriptions.length !== 1 ? 's' : ''} eingetragen`
         }
       </p>
-
-      {/* Formular: Neues Abo anlegen */}
-      {showCreate && (
-        <div className="subs-create-card">
-          <h2>Neues Abo anlegen</h2>
-          <form onSubmit={handleCreate}>
-            <div className="subs-input-row">
-              <input
-                className="subs-input"
-                placeholder="Name (z. B. Netflix)"
-                value={createForm.name}
-                onChange={e => setCreateForm(f => ({ ...f, name: e.target.value }))}
-                required
-                autoFocus
-              />
-              {/* type="text" statt "number" damit Komma als Dezimaltrennzeichen funktioniert */}
-              <input
-                className="subs-input subs-input-sm"
-                placeholder="Betrag (z. B. 9,99)"
-                value={createForm.amount}
-                onChange={e => setCreateForm(f => ({ ...f, amount: e.target.value }))}
-                required
-              />
-              {/* started_on: optional — Backend setzt default auf heute wenn leer */}
-              <input
-                className="subs-input subs-input-sm"
-                type="date"
-                title="Abschlussdatum (optional — leer = heute)"
-                value={createForm.started_on}
-                onChange={e => setCreateForm(f => ({ ...f, started_on: e.target.value }))}
-              />
-              <select
-                className="subs-select"
-                value={createForm.interval}
-                onChange={e => setCreateForm(f => ({ ...f, interval: e.target.value as BillingInterval }))}
-              >
-                {INTERVALS.map(iv => (
-                  <option key={iv} value={iv}>{INTERVAL_LABELS[iv]}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* Tags optional beim Erstellen zuweisen */}
-            <TagSelector
-              allTags={allTags}
-              selectedIds={createTagIds}
-              onChange={setCreateTagIds}
-              onManageTags={() => setShowTagModal(true)}
-            />
-
-            {createError && <p className="subs-form-error">{createError}</p>}
-
-            <button type="submit" className="btn-primary" disabled={createLoading}>
-              {createLoading ? 'Speichern…' : 'Speichern'}
-            </button>
-          </form>
-        </div>
-      )}
 
       {/* Toolbar: Suche + Seitengrößen-Auswahl */}
       {subscriptions.length > 0 && (
