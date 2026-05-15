@@ -55,14 +55,9 @@ export default function SubscriptionCreateModal({
     }
   }, [logoPreviewUrl])
 
-  // Tag-Auswahl bereinigen wenn allTags sich ändert (z. B. nach Tag-Löschung)
-  useEffect(() => {
-    const validIds = new Set(allTags.map(t => t.id))
-    setTagIds(prev => {
-      const cleaned = prev.filter(id => validIds.has(id))
-      return cleaned.length === prev.length ? prev : cleaned
-    })
-  }, [allTags])
+  // Gelöschte Tags aus der Auswahl herausfiltern — als abgeleiteter Wert statt Effect
+  const validTagIds = new Set(allTags.map(t => t.id))
+  const effectiveTagIds = tagIds.filter(id => validTagIds.has(id))
 
   function handleLogoChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0] ?? null
@@ -121,9 +116,9 @@ export default function SubscriptionCreateModal({
       })
 
       // Schritt 2: Tags zuweisen (optional)
-      if (tagIds.length > 0) {
+      if (effectiveTagIds.length > 0) {
         try {
-          const assigned = await setSubscriptionTags(sub.id, { tag_ids: tagIds })
+          const assigned = await setSubscriptionTags(sub.id, { tag_ids: effectiveTagIds })
           sub = { ...sub, tags: assigned }
         } catch (err) {
           // Abo existiert bereits — kein zweites Create
@@ -327,7 +322,7 @@ export default function SubscriptionCreateModal({
               </p>
               <TagSelector
                 allTags={allTags}
-                selectedIds={tagIds}
+                selectedIds={effectiveTagIds}
                 onChange={setTagIds}
                 onManageTags={() => setShowTagModal(true)}
               />
